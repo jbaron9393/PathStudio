@@ -50,17 +50,9 @@ Notes:
 
 ## Grossing Manual integration
 
-The app now serves the Grossing Manual under the same domain at `/grossing-manual` (no iframe).
+The app links to the externally hosted Grossing Manual at `https://gross-pathology-manual-uch.github.io/Path/`.
 
-### Sync vendored content
-
-The server now attempts to auto-sync the vendor folder on startup and on the first `/grossing-manual` request if files are missing.
-
-You can also run a manual sync:
-
-```bash
-npm run sync:grossing-manual
-```
+For the Node app, `/grossing-manual` remains available for old bookmarks and redirects to that external manual. GitHub Pages uses the same external URL directly, so no vendored manual sync is required.
 
 ### Render build/deploy notes
 
@@ -68,10 +60,18 @@ Recommended Render build/start:
 
 ```bash
 # Build
-npm ci && npm run sync:grossing-manual
+npm ci
 
 # Start
 npm start
 ```
 
-If the build-time sync is skipped, startup auto-sync still attempts to fetch the manual.
+
+## GitHub Pages static preview
+
+The `.github/workflows/static.yml` workflow publishes a front-end-only preview for GitHub Pages. It copies `cap_cloze_refiner.html` to `index.html`, includes the synoptic generator, script, and favicon. The Grossing Manual button opens the external hosted manual.
+
+Important limitations:
+
+- GitHub Pages is static and cannot run `server.js`. Refiner/Rewriter OpenAI actions still require the Node server (`npm start`) or a deployed backend.
+- The static preview uses relative asset links so it works from a GitHub Pages project path like `/Path/` instead of only from the domain root.
