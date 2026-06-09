@@ -820,146 +820,91 @@ Card 3 text..."
   <!-- Scripts -->
   <script src="script.js?v=20260609-vercel-assets" defer></script>
 
-<!-- Tabs script (ONE only) -->
+<!-- Page chrome script: tabs + theme only. Core app actions live in script.js. -->
 <script>
   document.addEventListener("DOMContentLoaded", () => {
-    if (window.feather) feather.replace();
+    // Keep tab switching isolated so unrelated UI errors do not break navigation.
+    const buttons = Array.from(document.querySelectorAll(".tab-btn"));
+    const panels = Array.from(document.querySelectorAll(".tab-panel"));
 
-    // ✅ SET SERVER BADGE DYNAMICALLY
-    const sb = document.getElementById("serverBadge");
-    if (sb) sb.textContent = `Server: ${window.location.host}`;
+    function activate(tabName) {
+      if (!tabName) return;
 
-    // ============================
-    // THEME (Dark Mode) TOGGLE
-    // ============================
-    const root = document.documentElement; // <html>
-    const toggleBtn = document.getElementById("themeToggle");
-    const themeIcon = document.getElementById("themeIcon");
-    const themeLabel = document.getElementById("themeLabel");
+      panels.forEach((panel) => {
+        panel.classList.toggle("hidden", panel.dataset.panel !== tabName);
+      });
 
-    function applyTheme(mode) {
-      const isDark = mode === "dark";
-      root.classList.toggle("dark", isDark);
-      if (themeIcon) themeIcon.textContent = isDark ? "☀️" : "🌙";
-      if (themeLabel) themeLabel.textContent = isDark ? "Light" : "Dark";
+      buttons.forEach((button) => {
+        const isActive = button.dataset.tab === tabName;
 
-      const synopticFrame = document.getElementById("synopticFrame");
-      if (synopticFrame && synopticFrame.contentWindow) {
-        synopticFrame.contentWindow.postMessage({ type: "theme", theme: mode }, window.location.origin);
-      }
-    }
+        button.classList.toggle("bg-primary-600", isActive);
+        button.classList.toggle("text-white", isActive);
+        button.classList.toggle("ring-2", isActive);
+        button.classList.toggle("ring-primary-500/40", isActive);
 
-    // Initialize from saved preference, else OS preference
-    const saved = localStorage.getItem("theme");
-    if (saved === "dark" || saved === "light") {
-      applyTheme(saved);
-    } else {
-      const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-      applyTheme(prefersDark ? "dark" : "light");
-    }
+        button.classList.toggle("bg-slate-100", !isActive);
+        button.classList.toggle("dark:bg-slate-800", !isActive);
+        button.classList.toggle("text-slate-700", !isActive);
+        button.classList.toggle("dark:text-slate-200", !isActive);
 
-    const synopticFrame = document.getElementById("synopticFrame");
-    if (synopticFrame) {
-      synopticFrame.addEventListener("load", () => {
-        const mode = root.classList.contains("dark") ? "dark" : "light";
-        if (synopticFrame.contentWindow) {
-          synopticFrame.contentWindow.postMessage({ type: "theme", theme: mode }, window.location.origin);
+        if (!isActive) {
+          button.classList.remove("shadow-lg", "shadow-primary-500/30");
         }
       });
+
+      if (window.feather) window.feather.replace();
     }
 
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", () => {
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => activate(button.dataset.tab));
+    });
+
+    window.activatePathTab = activate;
+    activate("rewriter");
+
+    // Everything below is non-critical page chrome. If it fails, tabs still work.
+    try {
+      if (window.feather) window.feather.replace();
+
+      const serverBadge = document.getElementById("serverBadge");
+      if (serverBadge) serverBadge.textContent = `Server: ${window.location.host || "local file"}`;
+
+      const root = document.documentElement;
+      const toggleBtn = document.getElementById("themeToggle");
+      const themeIcon = document.getElementById("themeIcon");
+      const themeLabel = document.getElementById("themeLabel");
+      const synopticFrame = document.getElementById("synopticFrame");
+
+      function applyTheme(mode) {
+        const isDark = mode === "dark";
+        root.classList.toggle("dark", isDark);
+        if (themeIcon) themeIcon.textContent = isDark ? "☀️" : "🌙";
+        if (themeLabel) themeLabel.textContent = isDark ? "Light" : "Dark";
+
+        if (synopticFrame?.contentWindow) {
+          synopticFrame.contentWindow.postMessage(
+            { type: "theme", theme: mode },
+            window.location.origin || "*",
+          );
+        }
+      }
+
+      const saved = localStorage.getItem("theme");
+      const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+      applyTheme(saved === "dark" || saved === "light" ? saved : prefersDark ? "dark" : "light");
+
+      synopticFrame?.addEventListener("load", () => {
+        applyTheme(root.classList.contains("dark") ? "dark" : "light");
+      });
+
+      toggleBtn?.addEventListener("click", () => {
         const next = root.classList.contains("dark") ? "light" : "dark";
         localStorage.setItem("theme", next);
         applyTheme(next);
       });
+    } catch (err) {
+      console.warn("Non-critical page chrome failed:", err);
     }
-
-    // ============================
-    // Tabs
-    // ============================
-    const buttons = document.querySelectorAll(".tab-btn");
-    const panels = document.querySelectorAll(".tab-panel");
-
-    function activate(tabName) {
-      panels.forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== tabName));
-      buttons.forEach((b) => {
-        const isActive = b.dataset.tab === tabName;
-
-        // Active state
-        b.classList.toggle("bg-primary-600", isActive);
-        b.classList.toggle("text-white", isActive);
-        b.classList.toggle("ring-2", isActive);
-        b.classList.toggle("ring-primary-500/40", isActive);
-
-        // Inactive state
-        b.classList.toggle("bg-slate-100", !isActive);
-        b.classList.toggle("dark:bg-slate-800", !isActive);
-        b.classList.toggle("text-slate-700", !isActive);
-        b.classList.toggle("dark:text-slate-200", !isActive);
-
-        // Clean up hover glow on inactive
-        if (!isActive) {
-          b.classList.remove("ring-2", "ring-primary-500/40", "shadow-lg", "shadow-primary-500/30");
-        }
-      });
-
-      if (window.feather) feather.replace();
-    }
-
-        function clearRefinerTab() {
-      bulkInput.value = "";
-      if (extraRulesEl) extraRulesEl.value = "";
-      renderCards([]);
-      refreshStats();
-      setStatus("");
-    }
-
-    function clearRewriterTab() {
-      rwInput.value = "";
-      rwRules.value = "";
-      rwOutput.innerHTML = "";
-      rwOutput.dataset.raw = "";
-      rwCopy.disabled = true;
-      setStatus("");
-    }
-
-    buttons.forEach((btn) => btn.addEventListener("click", () => activate(btn.dataset.tab)));
-    activate("rewriter"); // or "refiner" or "synoptic"
-
-    // ============================
-    // Enter = Refine | Ctrl/Cmd+Enter = New line
-    // bulkInput + extraRules
-    // ============================
-    document.addEventListener(
-      "keydown",
-      (e) => {
-        const t = e.target;
-        if (!(t instanceof HTMLTextAreaElement)) return;
-        if (t.id !== "bulkInput" && t.id !== "extraRules") return;
-
-        const isEnter = e.key === "Enter" || e.key === "NumpadEnter";
-        if (!isEnter) return;
-
-        const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-
-        // Ctrl/Cmd + Enter → newline
-        if (isCtrlOrCmd) {
-          e.preventDefault();
-          const start = t.selectionStart ?? t.value.length;
-          const end = t.selectionEnd ?? t.value.length;
-          t.value = t.value.slice(0, start) + "\n" + t.value.slice(end);
-          t.selectionStart = t.selectionEnd = start + 1;
-          return;
-        }
-
-        // Enter → refine
-        e.preventDefault();
-        if (typeof refineAll === "function") refineAll();
-      },
-      true
-    );
   });
 </script>
 </body>

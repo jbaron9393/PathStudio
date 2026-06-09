@@ -4,10 +4,46 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
-import { promises as fs } from "fs";
+import { promises as fs, readFileSync } from "fs";
 import { fileURLToPath } from "url";
 
 dotenv.config({ override: true });
+
+function parseOpenAIKeyFile(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+
+  const envLine = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^OPENAI_API_KEY\s*=/.test(line));
+
+  const key = envLine ? envLine.replace(/^OPENAI_API_KEY\s*=\s*/, "") : text.split(/\r?\n/)[0];
+  return key.trim().replace(/^['"]|['"]$/g, "");
+}
+
+function loadOpenAIKeyFromFile() {
+  if (String(process.env.OPENAI_API_KEY || "").trim()) return;
+
+  const apiKeyFile = String(
+    process.env.OPENAI_API_KEY_FILE || process.env.API_KEY_FILE || "",
+  ).trim();
+  if (!apiKeyFile) return;
+
+  try {
+    const key = parseOpenAIKeyFile(readFileSync(apiKeyFile, "utf8"));
+    if (key) {
+      process.env.OPENAI_API_KEY = key;
+      console.log("Loaded OPENAI_API_KEY from file:", apiKeyFile);
+    } else {
+      console.warn("OPENAI_API_KEY_FILE was readable but did not contain a key:", apiKeyFile);
+    }
+  } catch (err) {
+    console.warn("Could not read OPENAI_API_KEY_FILE:", apiKeyFile, err?.message || err);
+  }
+}
+
+loadOpenAIKeyFromFile();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
