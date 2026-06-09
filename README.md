@@ -75,3 +75,16 @@ Important limitations:
 
 - GitHub Pages is static and cannot run `server.js`. Refiner/Rewriter OpenAI actions still require the Node server (`npm start`) or a deployed backend.
 - The static preview uses relative asset links so it works from a GitHub Pages project path like `/Path/` instead of only from the domain root.
+
+## Vercel API backend
+
+The browser code defaults AI API calls to the deployed Vercel backend:
+
+```text
+https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app
+```
+
+Local development on `localhost` still uses the local `server.js` process. Static previews such as GitHub Pages or `file://` now call the Vercel backend instead of assuming there is no API server. To point a preview at a different backend, set `window.PATH_API_ORIGIN` before loading `script.js` or set `localStorage.PATH_API_ORIGIN` in the browser.
+
+For Vercel, keep `OPENAI_API_KEY` (and optional `APP_USERNAME`) in Vercel environment variables. If the login gate is enabled and you open the static preview from another origin, first sign in at the Vercel app URL so the browser can send the backend cookie.
+
