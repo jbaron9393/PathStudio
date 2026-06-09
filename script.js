@@ -83,10 +83,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const isLocalFile = window.location.protocol === "file:";
+  const isLocalHost = /^(localhost|127\.0\.0\.1|::1)$/i.test(window.location.hostname);
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const isVercelHost = /(^|\.)vercel\.app$/i.test(window.location.hostname);
   const deployedApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
   const localApiOrigin = "http://localhost:3000";
   const defaultApiOrigin = isLocalFile ? localApiOrigin : deployedApiOrigin;
+  const windowApiOrigin = window.PATH_API_ORIGIN || window.API_ORIGIN || "";
+  const storedApiOrigin = (() => {
+    try {
+      return localStorage.getItem("pathApiOrigin") || localStorage.getItem("apiOrigin") || "";
+    } catch (_err) {
+      return "";
+    }
+  })();
   const configuredApiOrigin = String(
     windowApiOrigin || storedApiOrigin || (isVercelHost ? window.location.origin : defaultApiOrigin),
   ).replace(/\/$/, "");
@@ -509,11 +519,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const hpiExtraInstruction = document.getElementById("hpiExtraInstruction");
   const rwCopy = document.getElementById("rwCopy");
   const rwCorrected = document.getElementById("rwCorrected");
+  const rwStatus = document.getElementById("rwStatus");
 
   const LEARNING_PRESETS = new Set(["micro", "gross", "path"]);
   const LEARNING_KEY = "rwPresetLearning";
 
   if (rwInput && rwOutput && rwRun && rwClear && rwRules && rwCopy && rwCorrected && rwPresetBtns.length) {
+    function setRewriterStatus(text, { mirrorGlobal = false } = {}) {
+      const message = String(text || "").trim();
+      if (rwStatus) rwStatus.textContent = message;
+      if (mirrorGlobal) setStatus(message);
+    }
+
+    function setRewriterError(message) {
+      const text = `Rewriter error: ${message || "Unknown error"}`;
+      rwOutput.value = text;
+      rwOutput.dataset.raw = text;
+      rwCopy.disabled = false;
+      updateCorrectedButtonState();
+      setRewriterStatus(text, { mirrorGlobal: true });
+    }
+
     // Preserve each preset button's original classes (padding/rounded/etc.)
     rwPresetBtns.forEach((btn) => {
       btn.dataset.baseClass = btn.className;
@@ -1138,6 +1164,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setFrozensImageState(false, "Waiting for screenshot…");
       if (rwPhotoInput) rwPhotoInput.value = "";
       renderGrossPhotoList();
+      setRewriterStatus("Ready.");
     }
 
     // Enter = submit, Shift + Enter = newline (rwInput)
@@ -1317,7 +1344,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (nextPreset !== lastPreset) {
           const keepRules = rwKeepRules?.checked === true;
           clearRewriterFields({ clearRules: !keepRules });
-          setStatus("");
         }
 
         rwPreset = nextPreset;
@@ -1334,7 +1360,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setRwOutputTypography(rwPreset);
         updateCorrectedButtonState();
 
-        setStatus(`Rewriter mode: ${rwPreset}`);
+        setRewriterStatus(`Rewriter mode: ${rwPreset}`, { mirrorGlobal: true });
       });
     });
 
@@ -1343,7 +1369,7 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const keepRules = rwKeepRules?.checked === true;
       clearRewriterFields({ clearRules: !keepRules });
-      setStatus("Cleared rewriter.");
+      setRewriterStatus(keepRules ? "Cleared input and output. Kept rules." : "Cleared rewriter.", { mirrorGlobal: true });
       rwInput.focus();
     });
 
@@ -1353,9 +1379,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const text = (rwInput.value || "").trim();
       if (rwPreset === "frozens_helper") {
         const combined = rwFrozensImageText;
-        if (!combined.trim()) return setStatus("Paste an OR schedule screenshot first.");
+        if (!combined.trim()) return setRewriterStatus("Paste an OR schedule screenshot first.", { mirrorGlobal: true });
         const parsedRows = parseFrozensRows(combined);
-        if (!parsedRows.length) return setStatus("Could not parse schedule row.");
+        if (!parsedRows.length) return setRewriterStatus("Could not parse schedule row.", { mirrorGlobal: true });
         const first = parsedRows[0];
         const time = String(first.time || "").replace(":", "");
         const sixColRow = [time, first.orRoom, first.patient, first.procedure, first.mrn, first.surgeon].join("\t");
@@ -1363,11 +1389,11 @@ document.addEventListener("DOMContentLoaded", () => {
         rwOutput.dataset.raw = sixColRow;
         rwCopy.disabled = !sixColRow;
         updateCorrectedButtonState();
-        setStatus("Done — generated one Excel-ready row (TIME, ROOM, PATIENT, PROCEDURE, MRN, SURGEON).");
+        setRewriterStatus("Done — generated one Excel-ready row (TIME, ROOM, PATIENT, PROCEDURE, MRN, SURGEON).", { mirrorGlobal: true });
         return;
       }
       if (rwPreset === "hpi_conciser") {
-        if (!text) return setStatus("Paste HPI text first.");
+        if (!text) return setRewriterStatus("Paste HPI text first.", { mirrorGlobal: true });
         const sentenceCap = hpiVeryConcise?.checked ? 1 : Number(hpiMaxSentences?.value || 2);
         const optRules = [
           "Rewrite into concise medical history for case-tracking spreadsheet.",
@@ -1380,6 +1406,7 @@ document.addEventListener("DOMContentLoaded", () => {
           String(hpiExtraInstruction?.value || "").trim(),
         ].filter(Boolean).join("\n");
         try {
+          setRewriterStatus("Generating concise HPI…", { mirrorGlobal: true });
           const j = await apiPostJson("/api/rewrite", {
             text,
             model: modelEl?.value || "gpt-4.1-mini",
@@ -1390,20 +1417,21 @@ document.addEventListener("DOMContentLoaded", () => {
             imageDataUrls: [],
             learningExamples: [],
             clientDateContext: getClientDateContext(),
-          });
+          }, { timeoutMs: 120000 });
           const conciseText = normalizeOutputText(j.text ?? "");
+          if (!conciseText) throw new Error("The API returned an empty response.");
           rwOutput.value = conciseText;
           rwOutput.dataset.raw = conciseText;
           rwCopy.disabled = !conciseText;
-          setStatus("Done — concise HPI generated.");
+          setRewriterStatus("Done — concise HPI generated.", { mirrorGlobal: true });
         } catch (err) {
           console.error("HPI conciser error:", err);
-          setStatus("HPI conciser error: " + (err?.message || String(err)));
+          setRewriterError(err?.message || String(err));
         }
         return;
       }
       const hasGrossPhotos = rwPreset === "gross_photo" && rwGrossPhotoDataUrls.length > 0;
-      if (!text && !hasGrossPhotos) return setStatus("Type text or attach gross photo image(s) first.");
+      if (!text && !hasGrossPhotos) return setRewriterStatus("Type text or attach gross photo image(s) first.", { mirrorGlobal: true });
 
       const previousAnswer = getRwOutputRaw();
       const isGeneralFollowUp = rwPreset === "general" && previousAnswer.length > 0;
@@ -1414,12 +1442,13 @@ document.addEventListener("DOMContentLoaded", () => {
       rwRun.disabled = true;
       rwRun.textContent = rwPreset === "general" ? "Sending…" : rwPreset === "hpi" ? "Generating HPI…" : "Refining…";
       const target = apiPath("/api/rewrite");
-      setStatus(
+      setRewriterStatus(
         rwPreset === "general"
           ? isGeneralFollowUp
             ? `Sending follow-up to ${target}…`
             : `Sending to ${target}…`
-          : `Refining via ${target}…`
+          : `Refining via ${target}…`,
+        { mirrorGlobal: true },
       );
 
       try {
@@ -1433,16 +1462,17 @@ document.addEventListener("DOMContentLoaded", () => {
           imageDataUrls: rwPreset === "gross_photo" ? rwGrossPhotoDataUrls : [],
           learningExamples: getLearningExamples(rwPreset),
           clientDateContext: getClientDateContext(),
-        });
+        }, { timeoutMs: 120000 });
         const renderedOutput = renderOutputRichText(j.text ?? "");
+        if (!renderedOutput.normalized) throw new Error("The API returned an empty response.");
         rwOutput.value = renderedOutput.normalized;
         rwOutput.dataset.raw = renderedOutput.normalized;
         rwCopy.disabled = !renderedOutput.normalized;
         updateCorrectedButtonState();
-        setStatus(rwPreset === "general" ? "Done — answered." : rwPreset === "gross_photo" ? "Done — generated gross description from photo(s)." : rwPreset === "hpi" ? "Done — generated HPI paragraph." : "Done — rewritten.");
+        setRewriterStatus(rwPreset === "general" ? "Done — answered." : rwPreset === "gross_photo" ? "Done — generated gross description from photo(s)." : rwPreset === "hpi" ? "Done — generated HPI paragraph." : "Done — rewritten.", { mirrorGlobal: true });
       } catch (err) {
         console.error("Rewriter error:", err);
-        setStatus("Rewriter error: " + (err?.message || String(err)));
+        setRewriterError(err?.message || String(err));
       } finally {
         rwRun.disabled = false;
         setRunButtonLabel(rwPreset);
@@ -1461,6 +1491,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setRwOutputTypography("general");
     renderGrossPhotoList();
     updateCorrectedButtonState();
+    setRewriterStatus("Ready.");
 
     // Keep session warm so long-idle tabs still respond quickly.
     const keepAliveMs = 4 * 60 * 1000;
