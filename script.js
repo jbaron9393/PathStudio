@@ -1512,3 +1512,343 @@ document.addEventListener("DOMContentLoaded", () => {
     console.warn("Rewriter wiring skipped: missing elements or preset buttons not found.");
   }
 });
+
+// ============================
+// SCREENSHOTS TAB (client-side OCR)
+// ============================
+document.addEventListener("DOMContentLoaded", () => {
+  const dropZone = document.getElementById("ssDropZone");
+  const fileInput = document.getElementById("ssFileInput");
+  const uploadButton = document.getElementById("ssUploadButton");
+  const preview = document.getElementById("ssPreview");
+  const imageStatus = document.getElementById("ssImageStatus");
+  const hpiInput = document.getElementById("ssHpiInput");
+  const priorPathInput = document.getElementById("ssPriorPathInput");
+  const processButton = document.getElementById("ssProcessButton");
+  const clearButton = document.getElementById("ssClearButton");
+  const copyButton = document.getElementById("ssCopyButton");
+  const output = document.getElementById("ssOutput");
+  const ocrText = document.getElementById("ssOcrText");
+  const status = document.getElementById("ssStatus");
+
+  if (!dropZone || !fileInput || !uploadButton || !processButton || !output) return;
+
+  let screenshotFile = null;
+  let lastObjectUrl = "";
+
+  function setScreenshotStatus(message, ok = false) {
+    if (imageStatus) imageStatus.textContent = message;
+    dropZone.classList.toggle("border-emerald-500", ok);
+    dropZone.classList.toggle("dark:border-emerald-400", ok);
+    dropZone.classList.toggle("bg-emerald-50", ok);
+    dropZone.classList.toggle("dark:bg-emerald-950/30", ok);
+  }
+
+  function setStatus(message) {
+    if (status) status.textContent = message || "";
+  }
+
+  function normalizeOcrText(text) {
+    return String(text || "")
+      .replace(/[|]/g, " ")
+      .replace(/[“”]/g, '"')
+      .replace(/[’]/g, "'")
+      .replace(/\b0R\b/g, "OR")
+      .replace(/\bCEN0(\d)\b/gi, "CEN $1")
+      .replace(/\bCEN(\d{1,2})\b/gi, "CEN $1")
+      .replace(/\b([A-Z]{2,5})O(\d{1,2})\b/g, "$1 $2")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function normalizeTime(value) {
+    const raw = String(value || "").trim();
+    const match = raw.match(/\b([01]?\d|2[0-3])[:.]?([0-5]\d)\b/);
+    if (!match) return "";
+    return `${match[1].padStart(2, "0")}${match[2]}`;
+  }
+
+  function cleanName(name) {
+    return String(name || "")
+      .replace(/\[[^\]]*]/g, " ")
+      .replace(/\b(MD|M\.D\.|DO|D\.O\.|PA-C|PA|NP|RN|PhD|MBA)\b\.?/gi, " ")
+      .replace(/\s*,\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cleanPatientName(name) {
+    return cleanName(name)
+      .replace(/\b(?:male|female|sex|age|years?|yrs?|yo|y\/o)\b/gi, " ")
+      .replace(/\b\d{1,3}\b/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\s*,\s*$/g, "")
+      .trim();
+  }
+
+  function titleToSentenceCase(text) {
+    const lowerWords = new Set(["and", "or", "of", "for", "to", "the", "a", "an", "with", "in", "on", "by"]);
+    const words = String(text || "").toLowerCase().split(/\s+/).filter(Boolean);
+    return words.map((word, index) => {
+      if (index > 0 && lowerWords.has(word)) return word;
+      if (/^(scc|rcc|eua|ercp|egd|mri|ct|pet|slnb)$/i.test(word)) return word.toUpperCase();
+      return word;
+    }).join(" ").replace(/^./, (c) => c.toUpperCase());
+  }
+
+  function simplifyProcedure(procedure) {
+    let text = String(procedure || " ")
+      .replace(/\[[^\]]*]/g, " ")
+      .replace(/\b\d+\s*[.)]\s*/g, " ")
+      .replace(/\b\d+(?:\.\d+)?\s*(?:cm|mm|m|in|inch|inches)\b/gi, " ")
+      .replace(/\bSurgical\s+/gi, " ")
+      .replace(/\bOf\s+A\b/gi, "of")
+      .replace(/\b4th\b/gi, "fourth")
+      .replace(/\bLt\b|\bL\b(?=\s+(?:cheek|neck|tongue|arm|leg|breast|kidney|lung|knee|shoulder|thigh|foot|hand))/gi, "left")
+      .replace(/\bRt\b|\bR\b(?=\s+(?:cheek|neck|tongue|arm|leg|breast|kidney|lung|knee|shoulder|thigh|foot|hand))/gi, "right")
+      .replace(/\bAnd\b/gi, "and")
+      .replace(/\s*;\s*/g, "; ")
+      .replace(/\s*,\s*/g, ", ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    text = text
+      .replace(/Posterior Fossa Approach For (?:Surgical )?Resection Of (?:A )?Fourth Ventricular Tumor/i, "Posterior fossa approach for resection of fourth ventricular tumor")
+      .replace(/Open Whipple,?\s*Cholecystectomy,?\s*Vascular Resection And Reconstruction/i, "Open Whipple with vascular resection and reconstruction")
+      .replace(/Robotic Whipple,?\s*Cholecystectomy,?\s*Vascular Resection And Reconstruction/i, "Robotic Whipple with vascular resection and reconstruction")
+      .replace(/Wide Local Excision Of Left Cheek Melanoma And Sentinel Lymph Node Biopsy/i, "Wide local excision of left cheek melanoma with sentinel lymph node biopsy")
+      .replace(/Bilateral Neck Dissection; Total Laryngopharyngectomy, Base Of Tongue Resection; Radial Forearm Free Flap/i, "Total laryngopharyngectomy with bilateral neck dissection, base of tongue resection, and radial forearm free flap")
+      .replace(/Excision,?\s*Subcutaneous Right Knee Cyst,?.*/i, "Excision right knee cyst");
+
+    text = text
+      .replace(/\b(?:Cholecystectomy,?\s*)+(?=Vascular|with vascular|and vascular)/gi, "")
+      .replace(/\bVascular Resection And Reconstruction\b/gi, "vascular resection and reconstruction")
+      .replace(/\bSentinel Lymph Node Biopsy\b/gi, "sentinel lymph node biopsy")
+      .replace(/\bWide Local Excision\b/gi, "wide local excision")
+      .replace(/\bBase Of Tongue\b/gi, "base of tongue")
+      .replace(/\bRadial Forearm Free Flap\b/gi, "radial forearm free flap")
+      .replace(/\bTotal Laryngopharyngectomy\b/gi, "total laryngopharyngectomy")
+      .replace(/\bBilateral Neck Dissection\b/gi, "bilateral neck dissection")
+      .replace(/\s+,\s*/g, ", ")
+      .replace(/\s+/g, " ")
+      .replace(/^[,;\s]+|[,;\s]+$/g, "")
+      .trim();
+
+    const parts = text.split(/\s*(?:;|,\s*(?=[A-Z][a-z]))\s*/).map((part) => part.trim()).filter(Boolean);
+    const unique = [];
+    for (const part of parts.length ? parts : [text]) {
+      const key = part.toLowerCase().replace(/\W+/g, " ").trim();
+      if (key && !unique.some((item) => item.key === key)) unique.push({ key, part });
+    }
+    text = unique.map((item) => item.part).join(", ");
+
+    if (!/^Open Whipple|^Robotic Whipple|^Posterior fossa|^Wide local|^Total laryngopharyngectomy|^Excision right knee cyst/i.test(text)) {
+      text = titleToSentenceCase(text);
+    } else {
+      text = text.replace(/^./, (c) => c.toUpperCase());
+    }
+
+    return text;
+  }
+
+  function conciseSummary(text, maxLength = 200) {
+    let summary = String(text || "")
+      .replace(/\s+/g, " ")
+      .replace(/\bpatient is\b/gi, "")
+      .replace(/\bpresents? today\b/gi, "presents")
+      .trim();
+    if (!summary) return "";
+    if (summary.length <= maxLength) return summary;
+    const cut = summary.slice(0, maxLength + 1);
+    const sentenceEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "));
+    const wordEnd = cut.lastIndexOf(" ");
+    const end = sentenceEnd > 80 ? sentenceEnd + 1 : wordEnd;
+    return `${summary.slice(0, end > 0 ? end : maxLength).trim().replace(/[.,;:]$/g, "")}…`;
+  }
+
+  function summarizePriorPath(text) {
+    const source = String(text || "").replace(/\s+/g, " ").trim();
+    if (!source) return "";
+    const caseMatch = source.match(/\b(?:case\s*)?([A-Z]{1,3}\d{2}[- ]?\d{3,6})\b/i);
+    const prefix = /outside/i.test(source)
+      ? "Outside path"
+      : /in-house/i.test(source) && /UCH|University of Colorado/i.test(source)
+        ? "In-house UCH path"
+        : /UCH|University of Colorado/i.test(source)
+          ? "UCH path"
+          : "Prior path";
+    const diagnoses = [
+      "clear cell RCC", "melanoma", "granulosa cell tumor", "endometrioid adenocarcinoma",
+      "squamous cell carcinoma", "SCC", "adenocarcinoma", "carcinoma", "sarcoma", "lymphoma",
+      "meningioma", "glioma", "metastatic", "benign", "dysplasia"
+    ];
+    const found = diagnoses.filter((dx) => new RegExp(`\\b${dx.replace(/ /g, "\\s+")}\\b`, "i").test(source));
+    const dxText = found.length ? [...new Set(found.map((dx) => dx.replace(/^scc$/i, "SCC")))].join(" and ") : conciseSummary(source, 120);
+    return `${prefix}: ${dxText}${caseMatch ? `, case ${caseMatch[1].replace(" ", "-")}` : ""}`.slice(0, 200);
+  }
+
+  function valueAfterLabel(text, label) {
+    const pattern = new RegExp(`\\b${label}\\b\\s*[:#-]?\\s*([^\\n]+)`, "i");
+    return text.match(pattern)?.[1]?.trim() || "";
+  }
+
+  function parseScheduleText(rawText) {
+    const text = normalizeOcrText(rawText);
+    const compact = text.replace(/\s+/g, " ").trim();
+    const time = normalizeTime(valueAfterLabel(text, "time") || compact);
+    const orLabel = valueAfterLabel(text, "OR") || valueAfterLabel(text, "Room");
+    const orMatch = (orLabel || compact).match(/\b([A-Z]{2,5})\s*(\d{1,2})\b/);
+    const orRoom = orMatch ? `${orMatch[1].toUpperCase()} ${orMatch[2].padStart(2, "0")}` : "";
+    const mrn = (valueAfterLabel(text, "MRN").match(/\b\d{6,10}\b/) || compact.match(/\b\d{6,10}\b/) || [""])[0];
+
+    const patientLabel = valueAfterLabel(text, "Patient");
+    let patient = patientLabel ? patientLabel.replace(/\bMRN\b.*$/i, "") : "";
+    if (!patient && mrn) {
+      const beforeMrn = compact.slice(0, compact.indexOf(mrn)).replace(/\b(?:time|or|room|patient)\b\s*[:#-]?/gi, " ");
+      const patientMatch = beforeMrn.match(/([A-Z][A-Za-z' -]+,\s*[A-Z][A-Za-z' -]+(?:\s+[A-Z][A-Za-z' -]+){0,3})(?:\s+(?:Male|Female|\d{1,3}|years?))/i)
+        || beforeMrn.match(/([A-Z][A-Za-z' -]+,\s*[A-Z][A-Za-z' -]+(?:\s+[A-Z][A-Za-z' -]+){0,3})\s*$/);
+      patient = patientMatch?.[1] || "";
+    }
+    patient = cleanPatientName(patient);
+
+    const surgeonBox = compact.match(/([A-Z][A-Za-z' -]+,\s*[A-Z][A-Za-z' -]+(?:\s+[A-Z][A-Za-z' -]+){0,3})\s*,?\s*(?:Md|MD|Do|DO)\s*\[[^\]]+]/);
+    const surgeonLabel = valueAfterLabel(text, "Surgeon");
+    const surgeonTail = compact.match(/([A-Z][A-Za-z' -]+,\s*[A-Z][A-Za-z' -]+(?:\s+[A-Z][A-Za-z' -]+){0,3})\s*,?\s*(?:Md|MD|Do|DO)?\s*(?:\[[^\]]+])?\s*$/);
+    const surgeon = cleanName(surgeonBox?.[1] || surgeonLabel || surgeonTail?.[1] || "");
+
+    let procedure = valueAfterLabel(text, "Procedure");
+    if (!procedure && mrn) {
+      const afterMrn = compact.slice(compact.indexOf(mrn) + mrn.length).trim();
+      const surgeonIndex = surgeonBox ? afterMrn.indexOf(surgeonBox[0]) : surgeon ? afterMrn.lastIndexOf(surgeon) : -1;
+      procedure = surgeonIndex >= 0 ? afterMrn.slice(0, surgeonIndex) : afterMrn;
+    }
+    procedure = procedure
+      .replace(new RegExp(surgeon.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ")
+      .replace(/\b(?:Surgeon|Provider|Procedure)\b\s*[:#-]?/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return {
+      time,
+      orRoom,
+      surgeon,
+      procedure: simplifyProcedure(procedure),
+      mrn,
+      patient,
+    };
+  }
+
+  async function setScreenshotFile(file) {
+    if (!file || !file.type?.startsWith("image/")) {
+      setScreenshotStatus("Please provide an image file.", false);
+      return;
+    }
+    screenshotFile = file;
+    if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
+    lastObjectUrl = URL.createObjectURL(file);
+    if (preview) {
+      preview.src = lastObjectUrl;
+      preview.classList.remove("hidden");
+    }
+    if (ocrText) ocrText.value = "";
+    setScreenshotStatus(`Loaded ${file.name || "clipboard image"}.`, true);
+    setStatus("");
+  }
+
+  async function runOcr(file) {
+    if (!window.Tesseract) throw new Error("Tesseract.js is unavailable. Check the network connection and reload.");
+    const result = await window.Tesseract.recognize(file, "eng", {
+      tessedit_pageseg_mode: "6",
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789,:;.-[]()/# '&",
+    });
+    return normalizeOcrText(result?.data?.text || "");
+  }
+
+  uploadButton.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("click", (event) => {
+    if (event.target !== uploadButton) fileInput.click();
+  });
+  fileInput.addEventListener("change", () => setScreenshotFile(Array.from(fileInput.files || [])[0]));
+
+  ["dragenter", "dragover"].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropZone.classList.add("border-primary-500", "bg-primary-50");
+    });
+  });
+  ["dragleave", "drop"].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("border-primary-500", "bg-primary-50");
+    });
+  });
+  dropZone.addEventListener("drop", (event) => setScreenshotFile(Array.from(event.dataTransfer?.files || []).find((file) => file.type.startsWith("image/"))));
+
+  document.addEventListener("paste", (event) => {
+    const activePanel = document.querySelector('[data-panel="screenshots"]');
+    if (activePanel?.classList.contains("hidden")) return;
+    const imageItem = Array.from(event.clipboardData?.items || []).find((item) => item.type.startsWith("image/"));
+    const file = imageItem?.getAsFile();
+    if (file) setScreenshotFile(file);
+  });
+
+  processButton.addEventListener("click", async () => {
+    const existingOcr = ocrText?.value.trim() || "";
+    if (!screenshotFile && !existingOcr) {
+      setStatus("Paste, drop, or upload a screenshot first.");
+      return;
+    }
+
+    processButton.disabled = true;
+    copyButton.disabled = true;
+    setStatus(existingOcr ? "Parsing edited OCR text…" : "Running OCR in your browser…");
+
+    try {
+      const text = existingOcr || await runOcr(screenshotFile);
+      if (ocrText) ocrText.value = text;
+      const row = parseScheduleText(text);
+      const cells = [
+        row.time,
+        row.orRoom,
+        row.surgeon,
+        row.procedure,
+        row.mrn,
+        row.patient,
+        conciseSummary(hpiInput?.value || "", 200),
+        summarizePriorPath(priorPathInput?.value || ""),
+      ];
+      output.value = cells.map((cell) => String(cell || "").replace(/[\t\r\n]+/g, " ").trim()).join("\t");
+      copyButton.disabled = !output.value;
+      setStatus("Done — output row is ready to copy into Excel.");
+    } catch (err) {
+      console.error("Screenshot processing error:", err);
+      setStatus(`Screenshot processing error: ${err?.message || String(err)}`);
+    } finally {
+      processButton.disabled = false;
+    }
+  });
+
+  copyButton.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(output.value || "");
+    setStatus("Copied Excel-ready row.");
+  });
+
+  clearButton?.addEventListener("click", () => {
+    screenshotFile = null;
+    if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
+    lastObjectUrl = "";
+    fileInput.value = "";
+    if (preview) {
+      preview.src = "";
+      preview.classList.add("hidden");
+    }
+    if (hpiInput) hpiInput.value = "";
+    if (priorPathInput) priorPathInput.value = "";
+    if (ocrText) ocrText.value = "";
+    output.value = "";
+    copyButton.disabled = true;
+    setScreenshotStatus("No screenshot loaded.", false);
+    setStatus("");
+  });
+});
