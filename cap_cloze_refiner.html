@@ -243,7 +243,7 @@
             ></textarea>
 
 
-            <div class="flex gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <button
                 id="rwRun"
                 type="button"
@@ -265,6 +265,14 @@
               >
                 Clear
               </button>
+
+              <div
+                id="rwStatus"
+                class="min-h-[1.5rem] text-sm text-slate-600 dark:text-slate-300"
+                aria-live="polite"
+              >
+                Ready.
+              </div>
             </div>
 
             <div class="flex flex-wrap gap-2">
@@ -818,7 +826,7 @@ Card 3 text..."
   </div>
 
   <!-- Scripts -->
-  <script src="script.js?v=20260609-rewriter-api-origin-fix" defer></script>
+  <script src="script.js?v=20260609-rewriter-output-fix" defer></script>
 
 <!-- Page chrome script: tabs + theme only. Core app actions live in script.js. -->
 <script>
