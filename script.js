@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const localApiOrigin = "http://localhost:3000";
   const defaultApiOrigin = isLocalFile ? localApiOrigin : deployedApiOrigin;
   const configuredApiOrigin = String(
-    window.PATH_API_ORIGIN || localStorage.getItem("PATH_API_ORIGIN") || defaultApiOrigin,
+    windowApiOrigin || storedApiOrigin || (isVercelHost ? window.location.origin : defaultApiOrigin),
   ).replace(/\/$/, "");
   const staticBackendMessage =
     `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. If you are running locally, start the server with npm start and open http://localhost:3000 instead of double-clicking the HTML file.`;
@@ -97,7 +97,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function shouldUseRemoteApi() {
     if (!configuredApiOrigin) return false;
     if (isLocalFile || isGitHubPages) return true;
-    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+    if (isLocalHost) return false;
     return window.location.origin !== configuredApiOrigin;
   }
 
@@ -1413,12 +1413,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       rwRun.disabled = true;
       rwRun.textContent = rwPreset === "general" ? "Sending…" : rwPreset === "hpi" ? "Generating HPI…" : "Refining…";
+      const target = apiPath("/api/rewrite");
       setStatus(
         rwPreset === "general"
           ? isGeneralFollowUp
-            ? "Sending follow-up…"
-            : "Sending…"
-          : "Refining…"
+            ? `Sending follow-up to ${target}…`
+            : `Sending to ${target}…`
+          : `Refining via ${target}…`
       );
 
       try {
