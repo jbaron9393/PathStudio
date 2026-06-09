@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, renameSync, rmSync } from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
 import { fileURLToPath } from "url";
@@ -20,11 +20,17 @@ export function syncGrossingManualVendor() {
   const hasGitRepo = existsSync(path.join(manualDir, ".git"));
 
   if (!hasGitRepo) {
-    if (existsSync(manualDir) && readdirSync(manualDir).length > 0) {
-      rmSync(manualDir, { recursive: true, force: true });
-    }
+    const tempManualDir = path.join(vendorDir, `Grossing-Manual.tmp-${process.pid}`);
+    rmSync(tempManualDir, { recursive: true, force: true });
 
-    runGit(["clone", "--depth", "1", gitRemote, manualDir]);
+    try {
+      runGit(["clone", "--depth", "1", gitRemote, tempManualDir]);
+      rmSync(manualDir, { recursive: true, force: true });
+      renameSync(tempManualDir, manualDir);
+    } catch (err) {
+      rmSync(tempManualDir, { recursive: true, force: true });
+      throw err;
+    }
     return;
   }
 
