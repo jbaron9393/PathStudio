@@ -35,32 +35,6 @@ jobs:
           cp favicon.svg _site/favicon.svg
           touch _site/.nojekyll
 
-          if [ -f vendor/Grossing-Manual/index.html ]; then
-            mkdir -p _site/grossing-manual
-            cp -R vendor/Grossing-Manual/. _site/grossing-manual/
-          else
-            mkdir -p _site/grossing-manual
-            cat > _site/grossing-manual/index.html <<'HTML'
-          <!doctype html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8" />
-              <meta name="viewport" content="width=device-width,initial-scale=1" />
-              <title>Grossing Manual unavailable</title>
-              <style>
-                body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.5; color: #334155; }
-                a { color: #4f46e5; }
-              </style>
-            </head>
-            <body>
-              <h1>Grossing Manual is not bundled in this static preview.</h1>
-              <p>Run the Node server or sync the vendor manual during deployment to use this section.</p>
-              <p><a href="../">Back to Path Studio</a></p>
-            </body>
-          </html>
-          HTML
-          fi
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
