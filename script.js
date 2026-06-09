@@ -84,16 +84,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const isLocalFile = window.location.protocol === "file:";
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const defaultApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
+  const configuredApiOrigin = String(
+    window.PATH_API_ORIGIN || localStorage.getItem("PATH_API_ORIGIN") || defaultApiOrigin,
+  ).replace(/\/$/, "");
   const staticBackendMessage =
-    "This static preview can show the pages, but AI actions need the Node server. Run `npm start` locally or deploy `server.js` to use Refine/Rewriter.";
-  let backendUnavailable = looksLikeStaticPreview();
+    `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. Sign in there if login is enabled, then reload this page.`;
+  let backendUnavailable = false;
+
+  function shouldUseRemoteApi() {
+    if (!configuredApiOrigin) return false;
+    if (isLocalFile || isGitHubPages) return true;
+    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+    return window.location.origin !== configuredApiOrigin;
+  }
 
   function apiPath(path) {
-    return String(path || "").replace(/^\/+/, "");
+    const cleanPath = `/${String(path || "").replace(/^\/+/, "")}`;
+    return shouldUseRemoteApi() ? `${configuredApiOrigin}${cleanPath}` : cleanPath;
   }
 
   function looksLikeStaticPreview() {
-    return isLocalFile || isGitHubPages;
+    return (isLocalFile || isGitHubPages) && !configuredApiOrigin;
   }
 
   async function apiPostJson(url, payload, { timeoutMs = 30000, retryOn401 = true } = {}) {
@@ -161,12 +173,13 @@ document.addEventListener("DOMContentLoaded", () => {
         backendUnavailable = true;
         setStatus(staticBackendMessage);
       } else if (!silent) {
-        setStatus("Connection lost. Ensure server.js is still running.");
+        setStatus(`Connection lost. Ensure the API is reachable at ${apiPath("/health")}.`);
       }
     }
   }
 
   if (looksLikeStaticPreview()) {
+    backendUnavailable = true;
     setStatus(staticBackendMessage);
   }
 
