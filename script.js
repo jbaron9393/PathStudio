@@ -82,12 +82,29 @@ document.addEventListener("DOMContentLoaded", () => {
     downloadAllBtn.disabled = !on;
   }
 
+  const isLocalFile = window.location.protocol === "file:";
+  const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const staticBackendMessage =
+    "This static preview can show the pages, but AI actions need the Node server. Run `npm start` locally or deploy `server.js` to use Refine/Rewriter.";
+  let backendUnavailable = looksLikeStaticPreview();
+
+  function apiPath(path) {
+    return String(path || "").replace(/^\/+/, "");
+  }
+
+  function looksLikeStaticPreview() {
+    return isLocalFile || isGitHubPages;
+  }
+
   async function apiPostJson(url, payload, { timeoutMs = 30000, retryOn401 = true } = {}) {
+    if (backendUnavailable) {
+      throw new Error(staticBackendMessage);
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(url, {
+      const res = await fetch(apiPath(url), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -102,7 +119,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return apiPostJson(url, payload, { timeoutMs, retryOn401: false });
       }
 
-      if (!res.ok) throw new Error(bodyText || `Request failed (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 404 && /<html|<!doctype/i.test(bodyText)) {
+          backendUnavailable = true;
+          throw new Error(staticBackendMessage);
+        }
+        throw new Error(bodyText || `Request failed (${res.status})`);
+      }
 
       return bodyText ? JSON.parse(bodyText) : {};
     } catch (err) {
@@ -117,20 +140,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function pingHealth({ silent = false } = {}) {
     try {
-      const res = await fetch("/health", {
+      const res = await fetch(apiPath("/health"), {
         method: "GET",
         cache: "no-store",
         credentials: "include",
       });
 
-      if (!res.ok && !silent) {
-        setStatus("Connection check failed. Reload and sign in again.");
+      if (!res.ok) {
+        if (res.status === 404) {
+          backendUnavailable = true;
+          setStatus(staticBackendMessage);
+        } else if (!silent) {
+          setStatus("Connection check failed. Reload and sign in again.");
+        }
+      } else {
+        backendUnavailable = false;
       }
     } catch (_err) {
-      if (!silent) {
+      if (looksLikeStaticPreview()) {
+        backendUnavailable = true;
+        setStatus(staticBackendMessage);
+      } else if (!silent) {
         setStatus("Connection lost. Ensure server.js is still running.");
       }
     }
+  }
+
+  if (looksLikeStaticPreview()) {
+    setStatus(staticBackendMessage);
   }
 
   // ----- render -----

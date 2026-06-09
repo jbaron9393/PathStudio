@@ -75,3 +75,14 @@ npm start
 ```
 
 If the build-time sync is skipped, startup auto-sync still attempts to fetch the manual.
+
+
+## GitHub Pages static preview
+
+The `.github/workflows/static.yml` workflow publishes a front-end-only preview for GitHub Pages. It copies `cap_cloze_refiner.html` to `index.html`, includes the synoptic generator, script, favicon, and any synced Grossing Manual files if `vendor/Grossing-Manual/index.html` exists.
+
+Important limitations:
+
+- GitHub Pages is static and cannot run `server.js`. Refiner/Rewriter OpenAI actions still require the Node server (`npm start`) or a deployed backend.
+- The static preview uses relative asset links so it works from a GitHub Pages project path like `/Path/` instead of only from the domain root.
+- If the Grossing Manual has not been synced, the static preview shows a placeholder page for that tab.
