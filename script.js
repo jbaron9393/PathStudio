@@ -84,16 +84,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const isLocalFile = window.location.protocol === "file:";
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const isVercelHost = /(^|\.)vercel\.app$/i.test(window.location.hostname);
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const defaultApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
+  const windowApiOrigin = window.PATH_API_ORIGIN || "";
+  const storedApiOrigin = isVercelHost ? "" : localStorage.getItem("PATH_API_ORIGIN") || "";
+  const configuredApiOrigin = String(
+    windowApiOrigin || storedApiOrigin || (isVercelHost ? window.location.origin : defaultApiOrigin),
+  ).replace(/\/$/, "");
   const staticBackendMessage =
-    "This static preview can show the pages, but AI actions need the Node server. Run `npm start` locally or deploy `server.js` to use Refine/Rewriter.";
-  let backendUnavailable = looksLikeStaticPreview();
+    `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. Sign in there if login is enabled, then reload this page.`;
+  let backendUnavailable = false;
+
+  function shouldUseRemoteApi() {
+    if (!configuredApiOrigin) return false;
+    if (isLocalFile || isGitHubPages) return true;
+    if (isLocalHost) return false;
+    return window.location.origin !== configuredApiOrigin;
+  }
 
   function apiPath(path) {
-    return String(path || "").replace(/^\/+/, "");
+    const cleanPath = `/${String(path || "").replace(/^\/+/, "")}`;
+    return shouldUseRemoteApi() ? `${configuredApiOrigin}${cleanPath}` : cleanPath;
   }
 
   function looksLikeStaticPreview() {
-    return isLocalFile || isGitHubPages;
+    return (isLocalFile || isGitHubPages) && !configuredApiOrigin;
   }
 
   async function apiPostJson(url, payload, { timeoutMs = 30000, retryOn401 = true } = {}) {
@@ -161,12 +177,13 @@ document.addEventListener("DOMContentLoaded", () => {
         backendUnavailable = true;
         setStatus(staticBackendMessage);
       } else if (!silent) {
-        setStatus("Connection lost. Ensure server.js is still running.");
+        setStatus(`Connection lost. Ensure the API is reachable at ${apiPath("/health")}.`);
       }
     }
   }
 
   if (looksLikeStaticPreview()) {
+    backendUnavailable = true;
     setStatus(staticBackendMessage);
   }
 
@@ -1398,12 +1415,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       rwRun.disabled = true;
       rwRun.textContent = rwPreset === "general" ? "Sending…" : rwPreset === "hpi" ? "Generating HPI…" : "Refining…";
+      const target = apiPath("/api/rewrite");
       setStatus(
         rwPreset === "general"
           ? isGeneralFollowUp
-            ? "Sending follow-up…"
-            : "Sending…"
-          : "Refining…"
+            ? `Sending follow-up to ${target}…`
+            : `Sending to ${target}…`
+          : `Refining via ${target}…`
       );
 
       try {
