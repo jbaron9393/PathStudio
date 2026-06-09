@@ -1,6 +1,7 @@
 console.log("Loaded server.js from:", process.cwd());
 
 import express from "express";
+import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { promises as fs } from "fs";
@@ -12,11 +13,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ADAPTIVE_PRESETS = new Set(["micro", "gross", "path"]);
-const LEARNING_DIR = path.join(__dirname, "data");
+const DATA_DIR = path.join(__dirname, "data");
+const LEARNING_DIR =
+  process.env.LEARNING_DIR ||
+  (process.env.VERCEL ? path.join("/tmp", "path-learning") : DATA_DIR);
 const GROSSING_MANUAL_URL = "https://gross-pathology-manual-uch.github.io/Path/";
+const PUBLIC_API_ORIGIN = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
 const LEARNING_FILE = path.join(LEARNING_DIR, "rewrite_learning.json");
 const MAX_PERSISTED_EXAMPLES_PER_PRESET = 600;
-const STYLE_SEED_FILE = path.join(LEARNING_DIR, "style_seed.json");
+const STYLE_SEED_FILE = process.env.STYLE_SEED_FILE || path.join(DATA_DIR, "style_seed.json");
 let styleSeedLibrary = { micro: [], gross: [], path: [] };
 function normalizeStyleSnippet(text) {
   const v = String(text || "").trim().replace(/\r\n/g, "\n");
@@ -110,6 +115,39 @@ console.log("OPENAI_API_KEY length:", k.length);
 
 // ---- app init ----
 const app = express();
+
+const configuredAllowedOrigins = String(process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+const allowedOrigins = new Set([PUBLIC_API_ORIGIN, ...configuredAllowedOrigins]);
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+
+  try {
+    const u = new URL(origin);
+    if (allowedOrigins.has(origin.replace(/\/$/, ""))) return true;
+    if (["localhost", "127.0.0.1", "::1"].includes(u.hostname)) return true;
+    if (u.hostname === "github.io" || u.hostname.endsWith(".github.io")) return true;
+    if (u.hostname === "vercel.app" || u.hostname.endsWith(".vercel.app")) return true;
+  } catch (_err) {
+    return false;
+  }
+
+  return false;
+}
+
+const corsOptions = {
+  credentials: true,
+  origin(origin, callback) {
+    if (isAllowedCorsOrigin(origin)) return callback(null, true);
+    return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -143,12 +181,14 @@ function isAuthenticated(req) {
 
 function setLoginCookie(res, { remember = false } = {}) {
   const maxAge = remember ? 60 * 60 * 24 * 30 : null;
+  const isHostedHttps = Boolean(process.env.VERCEL || process.env.COOKIE_SECURE === "true");
   const parts = [
     `${AUTH_COOKIE_NAME}=${encodeURIComponent(APP_LOGIN_ID)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    isHostedHttps ? "SameSite=None" : "SameSite=Lax",
   ];
+  if (isHostedHttps) parts.push("Secure");
   if (maxAge) parts.push(`Max-Age=${maxAge}`);
   res.setHeader("Set-Cookie", parts.join("; "));
 }
@@ -1209,6 +1249,10 @@ const PORT = process.env.PORT || 3000;
 
 await loadStyleSeedLibrary();
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+export default app;
