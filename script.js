@@ -83,10 +83,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const isLocalFile = window.location.protocol === "file:";
+  const isLocalHost = /^(localhost|127\.0\.0\.1|::1)$/i.test(window.location.hostname);
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const isVercelHost = /(^|\.)vercel\.app$/i.test(window.location.hostname);
   const deployedApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
   const localApiOrigin = "http://localhost:3000";
   const defaultApiOrigin = isLocalFile ? localApiOrigin : deployedApiOrigin;
+  const windowApiOrigin = window.PATH_API_ORIGIN || window.API_ORIGIN || "";
+  const storedApiOrigin = (() => {
+    try {
+      return localStorage.getItem("pathApiOrigin") || localStorage.getItem("apiOrigin") || "";
+    } catch (_err) {
+      return "";
+    }
+  })();
   const configuredApiOrigin = String(
     windowApiOrigin || storedApiOrigin || (isVercelHost ? window.location.origin : defaultApiOrigin),
   ).replace(/\/$/, "");
