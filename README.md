@@ -84,7 +84,7 @@ The browser code defaults AI API calls to the deployed Vercel backend:
 https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app
 ```
 
-Local development on `localhost` still uses the local `server.js` process. Static previews such as GitHub Pages or `file://` now call the Vercel backend instead of assuming there is no API server. To point a preview at a different backend, set `window.PATH_API_ORIGIN` before loading `script.js` or set `localStorage.PATH_API_ORIGIN` in the browser.
+Local development on `localhost` still uses the local `server.js` process. Vercel-hosted pages call their own deployment origin, so preview URLs do not accidentally post to an older hard-coded preview deployment. Static previews such as GitHub Pages or `file://` call the default Vercel backend instead of assuming there is no API server. To point a preview at a different backend, set `window.PATH_API_ORIGIN` before loading `script.js`; non-Vercel static previews can also set `localStorage.PATH_API_ORIGIN` in the browser.
 
 For Vercel, keep `OPENAI_API_KEY` (and optional `APP_USERNAME`) in Vercel environment variables. If the login gate is enabled and you open the static preview from another origin, first sign in at the Vercel app URL so the browser can send the backend cookie. The Vercel config explicitly publishes the browser assets (`script.js`, favicon, and the synoptic iframe) because deployments with a custom `builds` list only include allowlisted build outputs.
 

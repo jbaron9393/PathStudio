@@ -84,9 +84,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const isLocalFile = window.location.protocol === "file:";
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+  const isVercelHost = /(^|\.)vercel\.app$/i.test(window.location.hostname);
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const defaultApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
+  const windowApiOrigin = window.PATH_API_ORIGIN || "";
+  const storedApiOrigin = isVercelHost ? "" : localStorage.getItem("PATH_API_ORIGIN") || "";
   const configuredApiOrigin = String(
-    window.PATH_API_ORIGIN || localStorage.getItem("PATH_API_ORIGIN") || defaultApiOrigin,
+    windowApiOrigin || storedApiOrigin || (isVercelHost ? window.location.origin : defaultApiOrigin),
   ).replace(/\/$/, "");
   const staticBackendMessage =
     `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. Sign in there if login is enabled, then reload this page.`;
@@ -95,7 +99,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function shouldUseRemoteApi() {
     if (!configuredApiOrigin) return false;
     if (isLocalFile || isGitHubPages) return true;
-    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+    if (isLocalHost) return false;
     return window.location.origin !== configuredApiOrigin;
   }
 
@@ -1411,12 +1415,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       rwRun.disabled = true;
       rwRun.textContent = rwPreset === "general" ? "Sending…" : rwPreset === "hpi" ? "Generating HPI…" : "Refining…";
+      const target = apiPath("/api/rewrite");
       setStatus(
         rwPreset === "general"
           ? isGeneralFollowUp
-            ? "Sending follow-up…"
-            : "Sending…"
-          : "Refining…"
+            ? `Sending follow-up to ${target}…`
+            : `Sending to ${target}…`
+          : `Refining via ${target}…`
       );
 
       try {
