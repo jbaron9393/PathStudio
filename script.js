@@ -84,12 +84,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const isLocalFile = window.location.protocol === "file:";
   const isGitHubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
-  const defaultApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
+  const deployedApiOrigin = "https://path-lcq4f9pfy-jamesbar-s-projects.vercel.app";
+  const localApiOrigin = "http://localhost:3000";
+  const defaultApiOrigin = isLocalFile ? localApiOrigin : deployedApiOrigin;
   const configuredApiOrigin = String(
     window.PATH_API_ORIGIN || localStorage.getItem("PATH_API_ORIGIN") || defaultApiOrigin,
   ).replace(/\/$/, "");
   const staticBackendMessage =
-    `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. Sign in there if login is enabled, then reload this page.`;
+    `AI actions are unavailable because the backend could not be reached. The configured API is ${configuredApiOrigin}. If you are running locally, start the server with npm start and open http://localhost:3000 instead of double-clicking the HTML file.`;
   let backendUnavailable = false;
 
   function shouldUseRemoteApi() {

@@ -10,25 +10,29 @@ Anki cloze batch refiner powered by OpenAI.
 
 
 
-Create a .env file (not committed):
+A local `.env` file has been created for this checkout and points at:
 
+```text
+C:\Users\jspcb\OneDrive - The University of Colorado Denver\Documents\GitHub\API.txt
+```
 
+The committed `.env.example` shows the same setup without storing any real secret. If you clone this repo again, copy `.env.example` to `.env` or create `.env` in the repo root with:
 
-OPENAI\_API\_KEY=PASTE\_YOUR\_KEY\_HERE  
+```env
+OPENAI_API_KEY_FILE=C:/Users/jspcb/OneDrive - The University of Colorado Denver/Documents/GitHub/API.txt
+APP_USERNAME=
+```
 
-APP\_USERNAME=SET\_A\_USERNAME\_OR\_PATH\_HERE  
+Your `API.txt` file can contain either just the raw key or a line like `OPENAI_API_KEY=sk-...`. Keep `API.txt` outside the repo or make sure it is listed in `.gitignore` so the secret is not committed. GitHub does not need to read this local file when you run the app locally; only your local Node process needs Windows read permission for it.
 
+Run these commands from the repo folder that contains `package.json`:
 
+```bash
+npm install
+npm start
+```
 
-Run:
-
-
-
-node server.js
-
-
-
-Open http://localhost:3000
+Then open **http://localhost:3000** in your browser. Do not double-click `cap_cloze_refiner.html` for local API testing; the browser page must be loaded from `localhost` so it talks to your local Node server and your local `API.txt` key file.
 
 
 
