@@ -3,3 +3,5 @@ node_modules/
 
 data/style_seed.json
 data/rewrite_learning.json
+API.txt
+*.key
