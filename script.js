@@ -922,11 +922,27 @@ document.addEventListener("DOMContentLoaded", () => {
       rwRun.textContent = preset === "frozens_helper" ? "Convert to Excel Row" : preset === "general" ? "Send ➜" : preset === "gross_photo" ? "Describe Photo ✨" : preset === "hpi" ? "Generate HPI ✨" : preset === "hpi_conciser" ? "Concise HPI" : "Refine ✨";
     }
 
+    const HPI_SUPER_CONDENSED_MAX_CHARS = 208;
+
     function normalizeOutputText(text) {
       return String(text || "")
         .replace(/\r\n/g, "\n")
         .replace(/\\n/g, "\n")
         .trim();
+    }
+
+    function enforceMaxChars(text, maxChars) {
+      const normalized = normalizeOutputText(text).replace(/\s+/g, " ").trim();
+      if (!Number.isFinite(maxChars) || maxChars <= 0 || normalized.length <= maxChars) return normalized;
+
+      const sliceLimit = Math.max(1, maxChars - 1);
+      let truncated = normalized.slice(0, sliceLimit);
+      const lastSpace = truncated.lastIndexOf(" ");
+      if (lastSpace > Math.floor(sliceLimit * 0.6)) truncated = truncated.slice(0, lastSpace);
+
+      truncated = truncated.replace(/[\s,;:()\-]+$/g, "").trim();
+      if (!truncated) return normalized.slice(0, maxChars);
+      return `${truncated}.`.slice(0, maxChars);
     }
 
     function escapeHtml(text) {
@@ -1315,7 +1331,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!text) return setStatus("Paste HPI text first.");
         const superCondensed = Boolean(hpiVeryConcise?.checked);
         const sentenceLimitRule = superCondensed
-          ? "Return plain text only as exactly 1 compact sentence."
+          ? `Return plain text only as exactly 1 compact sentence with a hard maximum of ${HPI_SUPER_CONDENSED_MAX_CHARS} characters, including spaces and punctuation.`
           : "Return plain text only as 1-2 compact sentences.";
         const optRules = [
           "Rewrite into concise pathology-focused medical history for a case-tracking spreadsheet.",
@@ -1323,6 +1339,7 @@ document.addEventListener("DOMContentLoaded", () => {
           "Always start with a compact age/sex token when age and sex are provided (e.g., 30M, 78F); convert forms such as '80 y.o. F' or '66-year-old male' to this format.",
           "Use high-yield pathology abbreviations when they improve concision (e.g., w/, s/p, bx, c/f, dx, hx, mets, LAD, LN, PFTs, CT/MRI/PET, XRT/RT, chemo, panc, adenocar, cholangioCA if appropriate, SCC, IDC, DCIS, PTC, PHPT, MEN1, RUL/LUL, ENE).",
           "Preserve key facts: age/sex, primary dx or mass, site/laterality, key imaging/biopsy findings, biomarkers/stage/nodal disease, mets status if relevant, and current treatment/status.",
+          (superCondensed ? "For the 208-character cap, prioritize age/sex, primary dx/site, stage or mets status, and treatment/procedure context over lower-yield details." : ""),
           (hpiIncludeProcedure?.checked ? "Include key prior procedure/surgery details only when clinically relevant to pathology interpretation." : "Exclude scheduling/procedure-plan language and omit procedure/surgery details unless required to understand current pathology context."),
           "Include only pertinent dates that affect pathology interpretation or treatment chronology; remove incidental, repeated, or nonessential dates.",
           "Avoid narrative filler, symptom lists unless critical, follow-up plans, and long paragraphs.",
@@ -1340,7 +1357,9 @@ document.addEventListener("DOMContentLoaded", () => {
             learningExamples: [],
             clientDateContext: getClientDateContext(),
           });
-          const conciseText = normalizeOutputText(j.text ?? "");
+          const conciseText = superCondensed
+            ? enforceMaxChars(j.text ?? "", HPI_SUPER_CONDENSED_MAX_CHARS)
+            : normalizeOutputText(j.text ?? "");
           rwOutput.value = conciseText;
           rwOutput.dataset.raw = conciseText;
           rwCopy.disabled = !conciseText;
