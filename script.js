@@ -451,9 +451,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const rwHpiConciserTools = document.getElementById("rwHpiConciserTools");
   const hpiVeryConcise = document.getElementById("hpiVeryConcise");
   const hpiIncludeProcedure = document.getElementById("hpiIncludeProcedure");
-  const hpiIncludeDates = document.getElementById("hpiIncludeDates");
-  const hpiAggressiveAbbrev = document.getElementById("hpiAggressiveAbbrev");
-  const hpiMaxSentences = document.getElementById("hpiMaxSentences");
   const hpiExtraInstruction = document.getElementById("hpiExtraInstruction");
   const rwCopy = document.getElementById("rwCopy");
   const rwCorrected = document.getElementById("rwCorrected");
@@ -1316,15 +1313,19 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (rwPreset === "hpi_conciser") {
         if (!text) return setStatus("Paste HPI text first.");
-        const sentenceCap = hpiVeryConcise?.checked ? 1 : Number(hpiMaxSentences?.value || 2);
+        const superCondensed = Boolean(hpiVeryConcise?.checked);
+        const sentenceLimitRule = superCondensed
+          ? "Return plain text only as exactly 1 compact sentence."
+          : "Return plain text only as 1-2 compact sentences.";
         const optRules = [
-          "Rewrite into concise medical history for case-tracking spreadsheet.",
-          `Return plain text only, ${sentenceCap} sentence(s) maximum.`,
-          "Preserve key facts: age/sex, primary dx or mass, site/laterality, key imaging/biopsy findings, mets status if relevant, and current treatment/status.",
-          (hpiIncludeProcedure?.checked ? "Include key procedure/surgery details when clinically relevant." : "Exclude scheduling/procedure-plan language (planned surgery/resection/scheduled)."),
-          (hpiIncludeDates?.checked ? "Include only clinically meaningful dates." : "Omit dates unless required for clinical clarity."),
-          (hpiAggressiveAbbrev?.checked ? "Use aggressive medical abbreviations (M/F, LN, LAD, FNA, bx, MRI, CT, ERCP, s/p, c/f, DDLPS, PTC, RT, chemo)." : "Use standard concise medical abbreviations appropriately."),
-          "Avoid narrative filler, repeated dates, symptom lists unless critical, and long paragraphs.",
+          "Rewrite into concise pathology-focused medical history for a case-tracking spreadsheet.",
+          sentenceLimitRule,
+          "Always start with a compact age/sex token when age and sex are provided (e.g., 30M, 78F); convert forms such as '80 y.o. F' or '66-year-old male' to this format.",
+          "Use high-yield pathology abbreviations when they improve concision (e.g., w/, s/p, bx, c/f, dx, hx, mets, LAD, LN, PFTs, CT/MRI/PET, XRT/RT, chemo, panc, adenocar, cholangioCA if appropriate, SCC, IDC, DCIS, PTC, PHPT, MEN1, RUL/LUL, ENE).",
+          "Preserve key facts: age/sex, primary dx or mass, site/laterality, key imaging/biopsy findings, biomarkers/stage/nodal disease, mets status if relevant, and current treatment/status.",
+          (hpiIncludeProcedure?.checked ? "Include key prior procedure/surgery details only when clinically relevant to pathology interpretation." : "Exclude scheduling/procedure-plan language and omit procedure/surgery details unless required to understand current pathology context."),
+          "Include only pertinent dates that affect pathology interpretation or treatment chronology; remove incidental, repeated, or nonessential dates.",
+          "Avoid narrative filler, symptom lists unless critical, follow-up plans, and long paragraphs.",
           String(hpiExtraInstruction?.value || "").trim(),
         ].filter(Boolean).join("\n");
         try {
