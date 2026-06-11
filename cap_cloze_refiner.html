@@ -418,17 +418,8 @@
             <div id="rwHpiConciserTools" class="hidden space-y-2 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30">
               <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">HPI Conciser options</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                <label class="inline-flex items-center gap-2"><input id="hpiVeryConcise" type="checkbox" class="rounded border-slate-300" />Very concise (1 sentence)</label>
-                <label class="inline-flex items-center gap-2"><input id="hpiIncludeProcedure" type="checkbox" checked class="rounded border-slate-300" />Include procedure/surgery</label>
-                <label class="inline-flex items-center gap-2"><input id="hpiIncludeDates" type="checkbox" checked class="rounded border-slate-300" />Include dates</label>
-                <label class="inline-flex items-center gap-2"><input id="hpiAggressiveAbbrev" type="checkbox" class="rounded border-slate-300" />Aggressive abbreviations</label>
-                <label class="inline-flex items-center gap-2">
-                  Max sentence count
-                  <select id="hpiMaxSentences" class="rounded border border-slate-300 dark:bg-slate-900">
-                    <option value="1">1</option>
-                    <option value="2" selected>2</option>
-                  </select>
-                </label>
+                <label class="inline-flex items-center gap-2"><input id="hpiVeryConcise" type="checkbox" class="rounded border-slate-300" />Super condensed (1 sentence, ≤208 chars)</label>
+                <label class="inline-flex items-center gap-2"><input id="hpiIncludeProcedure" type="checkbox" class="rounded border-slate-300" />Include procedure/surgery</label>
               </div>
               <textarea
                 id="hpiExtraInstruction"
