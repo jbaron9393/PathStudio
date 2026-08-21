@@ -20,6 +20,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const extraRulesEl = document.getElementById("extraRules"); // optional box
   const rfKeepRules = document.getElementById("rfKeepRules");
+  const ruleSuggestions = document.getElementById("ruleSuggestions");
+  const ruleSuggestionChips = document.getElementById("ruleSuggestionChips");
 
   // ---- hard fails (prevents "nothing happens") ----
   const required = [
@@ -75,6 +77,47 @@ document.addEventListener("DOMContentLoaded", () => {
   function refreshStats() {
     const n = splitCards(bulkInput.value).length;
     inputStats.textContent = `${n} card${n === 1 ? "" : "s"} detected`;
+    refreshRuleSuggestions();
+  }
+
+  function suggestedRulesFor(text) {
+    const value = String(text || "").trim();
+    if (!value) return [];
+
+    const suggestions = [];
+    if (/\([^()]{2,}\)/.test(value)) {
+      suggestions.push("Prioritize the high-yield concept inside parentheses when choosing each cloze anchor.");
+      suggestions.push("Move supporting parenthetical detail outside the cloze so the tested answer stays succinct.");
+    }
+    if (value.split(/\s+/).length > 45) {
+      suggestions.push("Keep only the minimum context needed to identify the answer; remove redundant wording.");
+    }
+    if (/\b(?:because|due to|caused by|associated with|characterized by)\b/i.test(value)) {
+      suggestions.push("Prefer the diagnosis, mechanism, or hallmark finding over generic descriptive words.");
+    }
+    return suggestions.slice(0, 3);
+  }
+
+  function refreshRuleSuggestions() {
+    if (!ruleSuggestions || !ruleSuggestionChips) return;
+    const suggestions = suggestedRulesFor(bulkInput.value);
+    ruleSuggestionChips.replaceChildren();
+    ruleSuggestions.classList.toggle("hidden", suggestions.length === 0);
+
+    suggestions.forEach((suggestion) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "text-left text-xs px-3 py-2 rounded-lg border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-200 hover:bg-primary-100 dark:hover:bg-primary-900 transition-colors";
+      button.textContent = `+ ${suggestion}`;
+      button.addEventListener("click", () => {
+        const current = extraRulesEl.value.trim();
+        if (!current.includes(suggestion)) {
+          extraRulesEl.value = [current, suggestion].filter(Boolean).join("\n");
+        }
+        extraRulesEl.focus();
+      });
+      ruleSuggestionChips.appendChild(button);
+    });
   }
 
   function setActionsEnabled(on) {
@@ -170,7 +213,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const pre = document.createElement("pre");
       pre.className =
         "whitespace-pre-wrap font-mono text-sm leading-relaxed text-slate-800";
-      pre.textContent = text;
+      pre.dataset.cardOutput = text;
+      appendSafeEmphasis(pre, text);
 
       top.appendChild(tag);
       top.appendChild(copyBtn);
@@ -178,6 +222,36 @@ document.addEventListener("DOMContentLoaded", () => {
       wrap.appendChild(pre);
       outputs.appendChild(wrap);
     });
+  }
+
+  // Render only the small set of formatting tags supported by the refiner.
+  // Everything else remains literal text, so model output cannot inject HTML.
+  function appendSafeEmphasis(container, text) {
+    const tagPattern = /<\/?(?:b|strong|i|em|u)>/gi;
+    const stack = [container];
+    let cursor = 0;
+
+    for (const match of String(text || "").matchAll(tagPattern)) {
+      stack.at(-1).append(document.createTextNode(text.slice(cursor, match.index)));
+      const token = match[0];
+      const closing = token.startsWith("</");
+      const tag = token.match(/[a-z]+/i)[0].toLowerCase();
+
+      if (closing) {
+        if (stack.length > 1 && stack.at(-1).tagName.toLowerCase() === tag) {
+          stack.pop();
+        } else {
+          stack.at(-1).append(document.createTextNode(token));
+        }
+      } else {
+        const element = document.createElement(tag);
+        stack.at(-1).append(element);
+        stack.push(element);
+      }
+      cursor = match.index + token.length;
+    }
+
+    stack.at(-1).append(document.createTextNode(String(text || "").slice(cursor)));
   }
 
   // ----- actions -----
@@ -296,8 +370,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   copyAllBtn.addEventListener("click", async () => {
-    const blocks = Array.from(outputs.querySelectorAll("pre")).map(
-      (p) => p.textContent
+    const blocks = Array.from(outputs.querySelectorAll("[data-card-output]")).map(
+      (p) => p.dataset.cardOutput || ""
     );
     if (!blocks.length) return setStatus("Nothing to copy.");
 
@@ -307,8 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   downloadAllBtn.addEventListener("click", () => {
-    const blocks = Array.from(outputs.querySelectorAll("pre")).map(
-      (p) => p.textContent
+    const blocks = Array.from(outputs.querySelectorAll("[data-card-output]")).map(
+      (p) => p.dataset.cardOutput || ""
     );
     if (!blocks.length) return setStatus("Nothing to download.");
 
