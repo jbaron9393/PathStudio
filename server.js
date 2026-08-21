@@ -337,6 +337,13 @@ CLOZE RULES
 - Prefer clozing single anchors (1–2 words) like medically relevant clinical terms or disease or disease processes
 - Do NOT cloze whole sentences.
 
+CLOZE HINTS (OPTIONAL AND RESTRAINED)
+- You may add a gentle Anki hint using {{cN::answer::hint}} only when the surrounding card does not clearly indicate what kind of answer is expected.
+- Use a short categorical cue (normally 1–4 words), such as "virus", "bug?", or "envelope or not". A hint should orient recall without giving away the answer.
+- Do not add a hint to every cloze. Most clear clozes should remain {{cN::answer}} with no hint, and a card should rarely need more than 1–3 hints.
+- Never use the answer itself, a close synonym, or distinctive answer wording as the hint.
+- Preserve useful hints already supplied by the user, editing them only when needed for clarity or to avoid revealing the answer.
+
 PARENTHETICAL EMPHASIS (HIGH PRIORITY)
 - Treat text inside parentheses in the user's input as an explicit signal of what they consider important.
 - When a parenthetical contains a diagnosis, mechanism, hallmark finding, key qualifier, or answer cue, prefer that concept as the cloze anchor rather than a less specific nearby word.
@@ -421,14 +428,16 @@ function enforceClozeWordLimit(text, maxWords = 3) {
   if (!text) return text;
 
   return text.replace(/\{\{c(\d+)::([\s\S]*?)\}\}/g, (full, n, inner) => {
-    const content = String(inner).trim();
+    const parts = String(inner).split("::");
+    const content = String(parts.shift() || "").trim();
+    const hint = parts.length ? parts.join("::").trim() : "";
     const words = content.split(/\s+/).filter(Boolean);
 
     if (words.length <= maxWords) return full;
 
     // Salvage: replace long cloze content with a short anchor (1–3 words)
     const anchor = pickAnchorWords(content, maxWords);
-    return `{{c${n}::${anchor}}}`;
+    return `{{c${n}::${anchor}${hint ? `::${hint}` : ""}}}`;
   });
 }
 
@@ -493,7 +502,8 @@ function capClozesToInput(outText, inText, delimiter = "===CARD===") {
     // If input card has clozes, forbid any new cloze numbers not in the set
     if (allowed.size > 0) {
       return outCard.replace(/\{\{\s*c(\d+)\s*::([\s\S]*?)\}\}/g, (full, n, inner) => {
-        return allowed.has(String(n)) ? full : String(inner).trim();
+        const answer = String(inner).split("::")[0].trim();
+        return allowed.has(String(n)) ? full : answer;
       });
     }
 
