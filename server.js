@@ -319,6 +319,10 @@ FORMATTING
 - Do not change my wording unless needed for clarity.
 - Final output must always be placed inside a single plain-text “copy window” (code-style box).
 - Do not include explanations outside the copy window unless I ask.
+- Optional emphasis is allowed using Anki-compatible HTML: <b>bold</b>, <i>italics</i>, or <u>underline</u>.
+- Use emphasis only when it materially helps identify a few especially important words. Most cards do not need any emphasis.
+- Never emphasize a whole sentence or line, never stack multiple styles on the same words, and use no more than 3 short emphasized phrases per card.
+- Emphasis is secondary to cloze selection: do not add it merely for decoration or use it to compensate for choosing the wrong cloze anchor.
 
 CLOZE RULES
 - Never use nested clozes.
@@ -332,6 +336,19 @@ CLOZE RULES
 - If content is a short phrase, keep it on the same line.
 - Prefer clozing single anchors (1–2 words) like medically relevant clinical terms or disease or disease processes
 - Do NOT cloze whole sentences.
+
+CLOZE HINTS (OPTIONAL AND RESTRAINED)
+- You may add a gentle Anki hint using {{cN::answer::hint}} only when the surrounding card does not clearly indicate what kind of answer is expected.
+- Use a short categorical cue (normally 1–4 words), such as "virus", "bug?", or "envelope or not". A hint should orient recall without giving away the answer.
+- Do not add a hint to every cloze. Most clear clozes should remain {{cN::answer}} with no hint, and a card should rarely need more than 1–3 hints.
+- Never use the answer itself, a close synonym, or distinctive answer wording as the hint.
+- Preserve useful hints already supplied by the user, editing them only when needed for clarity or to avoid revealing the answer.
+
+PARENTHETICAL EMPHASIS (HIGH PRIORITY)
+- Treat text inside parentheses in the user's input as an explicit signal of what they consider important.
+- When a parenthetical contains a diagnosis, mechanism, hallmark finding, key qualifier, or answer cue, prefer that concept as the cloze anchor rather than a less specific nearby word.
+- Keep the clozed answer succinct (normally 1–3 words). Leave explanatory or supporting parenthetical words visible as context instead of hiding the entire parenthetical.
+- Do not discard medically meaningful parenthetical content merely to shorten the card; tighten redundant surrounding prose first.
 
 IF INPUT ALREADY HAS CLOZES
 - If the user input already contains clozes ({{c...::}}), you MUST NOT add any new clozes.
@@ -411,15 +428,41 @@ function enforceClozeWordLimit(text, maxWords = 3) {
   if (!text) return text;
 
   return text.replace(/\{\{c(\d+)::([\s\S]*?)\}\}/g, (full, n, inner) => {
-    const content = String(inner).trim();
+    const parts = String(inner).split("::");
+    const content = String(parts.shift() || "").trim();
+    const hint = parts.length ? parts.join("::").trim() : "";
     const words = content.split(/\s+/).filter(Boolean);
 
     if (words.length <= maxWords) return full;
 
     // Salvage: replace long cloze content with a short anchor (1–3 words)
     const anchor = pickAnchorWords(content, maxWords);
-    return `{{c${n}::${anchor}}}`;
+    return `{{c${n}::${anchor}${hint ? `::${hint}` : ""}}}`;
   });
+}
+
+function limitEmphasisFormatting(text, delimiter = "===CARD===", maxSpans = 3, maxWords = 3) {
+  const d = String(delimiter || "===CARD===");
+  return String(text || "")
+    .split(d)
+    .map((card) => {
+      let kept = 0;
+      return card.replace(/<(b|strong|i|em|u)>([\s\S]*?)<\/\1>/gi, (_full, tag, inner) => {
+        const visibleWords = String(inner)
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\{\{c\d+::|\}\}/gi, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        if (kept >= maxSpans || visibleWords.length === 0 || visibleWords.length > maxWords) {
+          return inner;
+        }
+        kept += 1;
+        return `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`;
+      });
+    })
+    .join(d);
 }
 
 
@@ -459,7 +502,8 @@ function capClozesToInput(outText, inText, delimiter = "===CARD===") {
     // If input card has clozes, forbid any new cloze numbers not in the set
     if (allowed.size > 0) {
       return outCard.replace(/\{\{\s*c(\d+)\s*::([\s\S]*?)\}\}/g, (full, n, inner) => {
-        return allowed.has(String(n)) ? full : String(inner).trim();
+        const answer = String(inner).split("::")[0].trim();
+        return allowed.has(String(n)) ? full : answer;
       });
     }
 
@@ -658,16 +702,17 @@ app.post("/api/refine", async (req, res) => {
     let input = "";
 
     // =======================
-    // OVERRIDE MODE
+    // CUSTOM RULES MODE
     // =======================
     if (extra) {
       input = `
 You are editing Anki cloze cards.
 
-ABSOLUTE OVERRIDE MODE:
-- Ignore ANY default/base rules.
-- Follow ONLY the user's Extra Cloze Rules below.
-- You MUST comply with them.
+${RULES}
+
+USER-SPECIFIED RULES:
+- Apply the user's Extra Cloze Rules in addition to the base rules above.
+- If an extra rule directly conflicts with a base preference, follow the user's extra rule, except that output and batch-format requirements remain mandatory.
 - If the user requests a specific number of clozes, you MUST produce exactly that many clozes PER CARD.
 - Do NOT invent facts.
 - Keep the original text content; only add/adjust cloze wrappers.
@@ -678,7 +723,7 @@ Batch rules:
 - Output MUST use the SAME delimiter (${d}) between cards
 - Output ONLY the cards (no commentary)
 
-USER EXTRA RULES:
+EXTRA CLOZE RULES:
 ${extra}
 
 USER INPUT:
@@ -707,18 +752,14 @@ ${rawText}
     // ✅ Call OpenAI ONCE
     const out = await callOpenAI({ apiKey, model, temperature, input });
 
-    let finalOut = out || "";
-
-    // ✅ If Extra Rules is present: return RAW model output, no server enforcement
-    if (extra) {
-      return res.json({ text: out });
-    }
-
-    // ✅ Normal strict enforcement
+    // Enforce the structural cloze guarantees in both normal and custom-rules modes.
+    // User rules can steer content selection, but should not accidentally create
+    // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
     fixed = capClozesToInput(fixed, rawText, d);
     fixed = enforceClozeWordLimit(fixed, 3);
     fixed = renumberClozesPerCard(fixed, d);
+    fixed = limitEmphasisFormatting(fixed, d, 3, 3);
 
     return res.json({ text: fixed });
   } catch (e) {

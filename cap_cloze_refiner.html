@@ -683,8 +683,9 @@ Card 3 text..."
               ></textarea>
 
               <div class="absolute bottom-3 right-3 flex gap-2 pointer-events-auto">
-                <button id="clear" type="button" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Clear all">
-                  <i data-feather="trash-2" class="w-4 h-4"></i>
+                <button id="clear" type="button" class="min-h-12 inline-flex items-center gap-2 px-4 py-3 bg-white/95 dark:bg-slate-800 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 rounded-xl font-semibold text-sm shadow-md transition-all active:scale-95" title="Clear this batch and start the next one" aria-label="Clear input and output, then focus the input for the next batch">
+                  <i data-feather="trash-2" class="w-5 h-5"></i>
+                  Clear &amp; Next
                 </button>
               </div>
             </div>
@@ -715,6 +716,13 @@ Card 3 text..."
                 focus:outline-none focus:ring-2 focus:ring-primary-500
                 resize-y"
               ></textarea>
+
+              <div id="ruleSuggestions" class="mt-2 hidden" aria-live="polite">
+                <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">
+                  Suggested rules from this input (click to add)
+                </div>
+                <div id="ruleSuggestionChips" class="flex flex-wrap gap-2"></div>
+              </div>
             </div>
 
             <div class="flex items-center justify-between pt-2">
