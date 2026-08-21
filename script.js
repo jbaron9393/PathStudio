@@ -213,7 +213,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const pre = document.createElement("pre");
       pre.className =
         "whitespace-pre-wrap font-mono text-sm leading-relaxed text-slate-800";
-      pre.textContent = text;
+      pre.dataset.cardOutput = text;
+      appendSafeEmphasis(pre, text);
 
       top.appendChild(tag);
       top.appendChild(copyBtn);
@@ -221,6 +222,36 @@ document.addEventListener("DOMContentLoaded", () => {
       wrap.appendChild(pre);
       outputs.appendChild(wrap);
     });
+  }
+
+  // Render only the small set of formatting tags supported by the refiner.
+  // Everything else remains literal text, so model output cannot inject HTML.
+  function appendSafeEmphasis(container, text) {
+    const tagPattern = /<\/?(?:b|strong|i|em|u)>/gi;
+    const stack = [container];
+    let cursor = 0;
+
+    for (const match of String(text || "").matchAll(tagPattern)) {
+      stack.at(-1).append(document.createTextNode(text.slice(cursor, match.index)));
+      const token = match[0];
+      const closing = token.startsWith("</");
+      const tag = token.match(/[a-z]+/i)[0].toLowerCase();
+
+      if (closing) {
+        if (stack.length > 1 && stack.at(-1).tagName.toLowerCase() === tag) {
+          stack.pop();
+        } else {
+          stack.at(-1).append(document.createTextNode(token));
+        }
+      } else {
+        const element = document.createElement(tag);
+        stack.at(-1).append(element);
+        stack.push(element);
+      }
+      cursor = match.index + token.length;
+    }
+
+    stack.at(-1).append(document.createTextNode(String(text || "").slice(cursor)));
   }
 
   // ----- actions -----
@@ -339,8 +370,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   copyAllBtn.addEventListener("click", async () => {
-    const blocks = Array.from(outputs.querySelectorAll("pre")).map(
-      (p) => p.textContent
+    const blocks = Array.from(outputs.querySelectorAll("[data-card-output]")).map(
+      (p) => p.dataset.cardOutput || ""
     );
     if (!blocks.length) return setStatus("Nothing to copy.");
 
@@ -350,8 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   downloadAllBtn.addEventListener("click", () => {
-    const blocks = Array.from(outputs.querySelectorAll("pre")).map(
-      (p) => p.textContent
+    const blocks = Array.from(outputs.querySelectorAll("[data-card-output]")).map(
+      (p) => p.dataset.cardOutput || ""
     );
     if (!blocks.length) return setStatus("Nothing to download.");
 

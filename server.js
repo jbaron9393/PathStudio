@@ -319,6 +319,10 @@ FORMATTING
 - Do not change my wording unless needed for clarity.
 - Final output must always be placed inside a single plain-text “copy window” (code-style box).
 - Do not include explanations outside the copy window unless I ask.
+- Optional emphasis is allowed using Anki-compatible HTML: <b>bold</b>, <i>italics</i>, or <u>underline</u>.
+- Use emphasis only when it materially helps identify a few especially important words. Most cards do not need any emphasis.
+- Never emphasize a whole sentence or line, never stack multiple styles on the same words, and use no more than 3 short emphasized phrases per card.
+- Emphasis is secondary to cloze selection: do not add it merely for decoration or use it to compensate for choosing the wrong cloze anchor.
 
 CLOZE RULES
 - Never use nested clozes.
@@ -426,6 +430,30 @@ function enforceClozeWordLimit(text, maxWords = 3) {
     const anchor = pickAnchorWords(content, maxWords);
     return `{{c${n}::${anchor}}}`;
   });
+}
+
+function limitEmphasisFormatting(text, delimiter = "===CARD===", maxSpans = 3, maxWords = 3) {
+  const d = String(delimiter || "===CARD===");
+  return String(text || "")
+    .split(d)
+    .map((card) => {
+      let kept = 0;
+      return card.replace(/<(b|strong|i|em|u)>([\s\S]*?)<\/\1>/gi, (_full, tag, inner) => {
+        const visibleWords = String(inner)
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\{\{c\d+::|\}\}/gi, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        if (kept >= maxSpans || visibleWords.length === 0 || visibleWords.length > maxWords) {
+          return inner;
+        }
+        kept += 1;
+        return `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`;
+      });
+    })
+    .join(d);
 }
 
 
@@ -721,6 +749,7 @@ ${rawText}
     fixed = capClozesToInput(fixed, rawText, d);
     fixed = enforceClozeWordLimit(fixed, 3);
     fixed = renumberClozesPerCard(fixed, d);
+    fixed = limitEmphasisFormatting(fixed, d, 3, 3);
 
     return res.json({ text: fixed });
   } catch (e) {
