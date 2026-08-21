@@ -203,12 +203,12 @@ function renderLoginPage(errorText = "") {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body style="font-family:Arial,sans-serif;background:#f8fafc;display:grid;place-items:center;min-height:100vh;margin:0;">
-    <form method="post" action="/api/login" style="width:min(420px,92vw);background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px;box-shadow:0 8px 24px rgba(15,23,42,.08);">
+    <form method="post" action="/api/login" style="box-sizing:border-box;width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px;box-shadow:0 8px 24px rgba(15,23,42,.08);">
       <h1 style="margin:0 0 6px;font-size:20px;">Sign in</h1>
       <p style="margin:0 0 16px;color:#475569;">Enter your username/path to open Cloze Refiner.</p>
       ${safeError}
       <label for="username" style="display:block;font-weight:600;margin-bottom:6px;">Username</label>
-      <input id="username" name="username" type="text" required autofocus style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;" />
+      <input id="username" name="username" type="text" required autofocus style="box-sizing:border-box;width:100%;max-width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;" />
       <label style="display:flex;align-items:center;gap:8px;margin:14px 0 16px;color:#334155;">
         <input type="checkbox" name="remember" value="1" />
         Remember me on this browser
