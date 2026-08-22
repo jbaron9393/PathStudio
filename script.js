@@ -1,3 +1,29 @@
+function sortExportCardsForAnki(cards) {
+  const sortDetails = (card) => {
+    const rawText = String(card?.text || "").trim();
+    const startsWithCloze = /^\{\{c\d+::/i.test(rawText);
+    const visibleText = rawText
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\{\{c\d+::(.*?)(?:::[^}]*)?\}\}/gi, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { startsWithCloze, visibleText };
+  };
+
+  return [...cards].sort((a, b) => {
+    const left = sortDetails(a);
+    const right = sortDetails(b);
+    if (left.startsWithCloze !== right.startsWithCloze) {
+      return left.startsWithCloze ? 1 : -1;
+    }
+    const alphabetical = left.visibleText.localeCompare(right.visibleText, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+    return alphabetical || (Number(a.sourceOrder) || 0) - (Number(b.sourceOrder) || 0);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ============================
   // CLOZE REFINER TAB WIRING
@@ -405,6 +431,215 @@ document.addEventListener("DOMContentLoaded", () => {
 
   setActionsEnabled(false);
   setStatus("Ready to refine");
+
+  // ============================
+  // ANKI EXPORTS TAB WIRING
+  // ============================
+  const exportFile = document.getElementById("exportFile");
+  const exportDropZone = document.getElementById("exportDropZone");
+  const exportFileName = document.getElementById("exportFileName");
+  const exportModel = document.getElementById("exportModel");
+  const exportBatchSize = document.getElementById("exportBatchSize");
+  const exportRules = document.getElementById("exportRules");
+  const processExport = document.getElementById("processExport");
+  const cancelExport = document.getElementById("cancelExport");
+  const exportStatus = document.getElementById("exportStatus");
+  const exportProgress = document.getElementById("exportProgress");
+  const exportProgressTrack = document.getElementById("exportProgressTrack");
+  const exportProgressLabel = document.getElementById("exportProgressLabel");
+  const exportDetected = document.getElementById("exportDetected");
+  const exportCompleted = document.getElementById("exportCompleted");
+  const exportFailed = document.getElementById("exportFailed");
+  const exportPreview = document.getElementById("exportPreview");
+  const downloadExportTxt = document.getElementById("downloadExportTxt");
+  const downloadExportDoc = document.getElementById("downloadExportDoc");
+
+  let selectedExportFile = null;
+  let refinedExportCards = [];
+  let exportCancelled = false;
+
+  function setExportProgress(completed, total) {
+    const percent = total ? Math.round((completed / total) * 100) : 0;
+    exportProgress.style.width = `${percent}%`;
+    exportProgressLabel.textContent = `${percent}%`;
+    exportProgressTrack.setAttribute("aria-valuenow", String(percent));
+  }
+
+  function selectExportFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".apkg")) {
+      exportStatus.textContent = "Please choose a file ending in .apkg.";
+      return;
+    }
+    selectedExportFile = file;
+    exportFileName.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+    exportStatus.textContent = "Deck ready to extract.";
+    processExport.disabled = false;
+    refinedExportCards = [];
+    downloadExportTxt.disabled = true;
+    downloadExportDoc.disabled = true;
+  }
+
+  function renderExportPreview(cards) {
+    exportPreview.replaceChildren();
+    const orderedCards = sortExportCardsForAnki(cards);
+    orderedCards.slice(0, 100).forEach((card, index) => {
+      const item = document.createElement("article");
+      item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
+      const label = document.createElement("div");
+      label.className = "text-xs font-semibold text-primary-600 dark:text-primary-400 mb-1.5";
+      label.textContent = `Note ${index + 1}`;
+      const content = document.createElement("div");
+      content.className = "whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 leading-relaxed";
+      appendSafeEmphasis(content, card.text);
+      item.append(label, content);
+      exportPreview.appendChild(item);
+    });
+    if (orderedCards.length > 100) {
+      const more = document.createElement("p");
+      more.className = "text-center text-xs text-slate-500 py-2";
+      more.textContent = `${orderedCards.length - 100} additional notes are included in the downloads.`;
+      exportPreview.appendChild(more);
+    }
+  }
+
+  function downloadExport(content, type, extension) {
+    const baseName = (selectedExportFile?.name || "anki_export").replace(/\.apkg$/i, "");
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${baseName}_refined.${extension}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportAsText() {
+    return sortExportCardsForAnki(refinedExportCards)
+      .map((card, index) => `NOTE ${index + 1}\n${card.text}`)
+      .join("\n\n===CARD===\n\n");
+  }
+
+  function escapeDocumentText(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  async function processAnkiExport() {
+    if (!selectedExportFile) return;
+    exportCancelled = false;
+    refinedExportCards = [];
+    processExport.disabled = true;
+    cancelExport.classList.remove("hidden");
+    downloadExportTxt.disabled = true;
+    downloadExportDoc.disabled = true;
+    exportDetected.textContent = "0";
+    exportCompleted.textContent = "0";
+    exportFailed.textContent = "0";
+    setExportProgress(0, 0);
+    exportStatus.textContent = "Extracting notes from the Anki package…";
+
+    try {
+      const extractionResponse = await fetch("/api/exports/apkg", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-File-Name": encodeURIComponent(selectedExportFile.name),
+        },
+        body: selectedExportFile,
+      });
+      const responseText = await extractionResponse.text();
+      if (!extractionResponse.ok) throw new Error(responseText || "Could not extract this deck.");
+      const extracted = JSON.parse(responseText);
+      const notes = Array.isArray(extracted.notes) ? extracted.notes : [];
+      if (!notes.length) throw new Error("No editable note text was found in this deck.");
+
+      exportDetected.textContent = String(notes.length);
+      const batchSize = Number(exportBatchSize.value) || 10;
+      let failures = 0;
+
+      for (let start = 0; start < notes.length; start += batchSize) {
+        if (exportCancelled) break;
+        const batch = notes.slice(start, start + batchSize);
+        exportStatus.textContent = `Refining notes ${start + 1}–${Math.min(start + batch.length, notes.length)} of ${notes.length}…`;
+        try {
+          const result = await apiPostJson(
+            "/api/refine",
+            {
+              text: batch.map((note) => note.text).join("\n\n===CARD===\n\n"),
+              model: exportModel.value,
+              temperature: 0.2,
+              delimiter: "===CARD===",
+              extraRules: exportRules.value,
+              clientDateContext: getClientDateContext(),
+            },
+            { timeoutMs: 120000 },
+          );
+          const outputs = splitCards(result.text ?? result.output ?? "");
+          batch.forEach((note, index) => {
+            const output = outputs[index];
+            if (!output) failures += 1;
+            refinedExportCards.push({ ...note, text: output || note.text, failed: !output });
+          });
+        } catch (error) {
+          console.error("Export batch failed:", error);
+          failures += batch.length;
+          refinedExportCards.push(...batch.map((note) => ({ ...note, failed: true })));
+        }
+
+        exportCompleted.textContent = String(refinedExportCards.length - failures);
+        exportFailed.textContent = String(failures);
+        setExportProgress(refinedExportCards.length, notes.length);
+        renderExportPreview(refinedExportCards);
+      }
+
+      if (exportCancelled) {
+        exportStatus.textContent = `Stopped after ${refinedExportCards.length} of ${notes.length} notes.`;
+      } else {
+        exportStatus.textContent = failures
+          ? `Finished. ${failures} note(s) kept their original text and need review.`
+          : `Finished refining all ${notes.length} notes.`;
+      }
+      const hasResults = refinedExportCards.length > 0;
+      downloadExportTxt.disabled = !hasResults;
+      downloadExportDoc.disabled = !hasResults;
+    } catch (error) {
+      console.error(error);
+      exportStatus.textContent = `Error: ${error?.message || error}`;
+    } finally {
+      processExport.disabled = false;
+      cancelExport.classList.add("hidden");
+    }
+  }
+
+  exportFile?.addEventListener("change", () => selectExportFile(exportFile.files?.[0]));
+  ["dragenter", "dragover"].forEach((eventName) => exportDropZone?.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    exportDropZone.classList.add("border-primary-600", "bg-primary-50");
+  }));
+  ["dragleave", "drop"].forEach((eventName) => exportDropZone?.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    exportDropZone.classList.remove("border-primary-600", "bg-primary-50");
+  }));
+  exportDropZone?.addEventListener("drop", (event) => selectExportFile(event.dataTransfer?.files?.[0]));
+  processExport?.addEventListener("click", processAnkiExport);
+  cancelExport?.addEventListener("click", () => {
+    exportCancelled = true;
+    exportStatus.textContent = "Stopping after the current batch…";
+  });
+  downloadExportTxt?.addEventListener("click", () => downloadExport(exportAsText(), "text/plain;charset=utf-8", "txt"));
+  downloadExportDoc?.addEventListener("click", () => {
+    const body = sortExportCardsForAnki(refinedExportCards).map((card, index) =>
+      `<h2>Note ${index + 1}</h2><p>${escapeDocumentText(card.text).replace(/\n/g, "<br>")}</p>`,
+    ).join("<hr>");
+    const documentHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Refined Anki Notes</title><style>body{font-family:Calibri,Arial,sans-serif;line-height:1.5;margin:40px}h1{color:#312e81}h2{font-size:14pt;color:#4338ca;margin-top:22px}p{white-space:normal}hr{border:0;border-top:1px solid #ddd}</style></head><body><h1>Refined Anki Notes</h1>${body}</body></html>`;
+    downloadExport(documentHtml, "application/msword", "doc");
+  });
 
   // ============================
   // REWRITER TAB WIRING (UPDATED)
