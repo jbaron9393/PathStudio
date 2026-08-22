@@ -321,7 +321,17 @@ app.post(
 
       const { stdout: noteJson } = await execFileAsync(
         "sqlite3",
-        ["-json", "-readonly", databasePath, "SELECT id, tags, hex(flds) AS fldsHex FROM notes ORDER BY id LIMIT 5001;"],
+        [
+          "-json",
+          "-readonly",
+          databasePath,
+          `SELECT n.id, n.tags, hex(n.flds) AS fldsHex, MIN(c.id) AS firstCardId
+           FROM notes AS n
+           LEFT JOIN cards AS c ON c.nid = n.id
+           GROUP BY n.id
+           ORDER BY COALESCE(MIN(c.id), n.id), n.id
+           LIMIT 5001;`,
+        ],
         { maxBuffer: 100 * 1024 * 1024 },
       );
       const rows = JSON.parse(noteJson || "[]");
@@ -336,6 +346,8 @@ app.post(
           .map((field) => field.trim());
         return {
           id: String(row.id || index + 1),
+          sourceOrder: index,
+          firstCardId: String(row.firstCardId || row.id || index + 1),
           tags: String(row.tags || "").trim(),
           fields,
           text: fields.filter(Boolean).join("\n"),

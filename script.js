@@ -456,7 +456,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderExportPreview(cards) {
     exportPreview.replaceChildren();
-    cards.slice(0, 100).forEach((card, index) => {
+    const orderedCards = [...cards].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    orderedCards.slice(0, 100).forEach((card, index) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
       const label = document.createElement("div");
@@ -468,10 +469,10 @@ document.addEventListener("DOMContentLoaded", () => {
       item.append(label, content);
       exportPreview.appendChild(item);
     });
-    if (cards.length > 100) {
+    if (orderedCards.length > 100) {
       const more = document.createElement("p");
       more.className = "text-center text-xs text-slate-500 py-2";
-      more.textContent = `${cards.length - 100} additional notes are included in the downloads.`;
+      more.textContent = `${orderedCards.length - 100} additional notes are included in the downloads.`;
       exportPreview.appendChild(more);
     }
   }
@@ -489,7 +490,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function exportAsText() {
-    return refinedExportCards
+    return [...refinedExportCards]
+      .sort((a, b) => a.sourceOrder - b.sourceOrder)
       .map((card, index) => `NOTE ${index + 1}\n${card.text}`)
       .join("\n\n===CARD===\n\n");
   }
@@ -607,7 +609,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   downloadExportTxt?.addEventListener("click", () => downloadExport(exportAsText(), "text/plain;charset=utf-8", "txt"));
   downloadExportDoc?.addEventListener("click", () => {
-    const body = refinedExportCards.map((card, index) =>
+    const body = [...refinedExportCards].sort((a, b) => a.sourceOrder - b.sourceOrder).map((card, index) =>
       `<h2>Note ${index + 1}</h2><p>${escapeDocumentText(card.text).replace(/\n/g, "<br>")}</p>`,
     ).join("<hr>");
     const documentHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Refined Anki Notes</title><style>body{font-family:Calibri,Arial,sans-serif;line-height:1.5;margin:40px}h1{color:#312e81}h2{font-size:14pt;color:#4338ca;margin-top:22px}p{white-space:normal}hr{border:0;border-top:1px solid #ddd}</style></head><body><h1>Refined Anki Notes</h1>${body}</body></html>`;
