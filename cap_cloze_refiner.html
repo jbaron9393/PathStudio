@@ -199,6 +199,18 @@
             text-slate-700 dark:text-slate-200
             hover:bg-slate-200 dark:hover:bg-slate-700
             transition-all"
+      data-tab="exports"
+    >
+      Exports
+    </button>
+
+    <button
+      type="button"
+      class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold
+            bg-slate-100 dark:bg-slate-800
+            text-slate-700 dark:text-slate-200
+            hover:bg-slate-200 dark:hover:bg-slate-700
+            transition-all"
       data-tab="synoptic"
     >
       Synoptic
@@ -795,6 +807,126 @@ Card 3 text..."
               <div class="flex flex-col items-center justify-center h-full text-slate-400 space-y-2" id="emptyState">
                 <i data-feather="inbox" class="w-12 h-12 opacity-20"></i>
                 <p class="text-sm">No refined cards yet</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================= -->
+      <!-- EXPORTS -->
+      <!-- ========================= -->
+      <section class="tab-panel hidden" data-panel="exports">
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-indigo-50/70 to-emerald-50/50 dark:from-slate-900 dark:to-slate-950 p-5 md:p-6 space-y-6">
+          <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div>
+              <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <i data-feather="package" class="w-5 h-5 text-primary-600"></i>
+                Anki Export Refiner
+              </h2>
+              <p class="mt-1 text-sm text-slate-600 dark:text-slate-300 max-w-2xl">
+                Upload an Anki <code>.apkg</code>, refine its note text in manageable batches using the same cloze rules as Refiner, then download a readable text or Word document. Your original deck is never changed.
+              </p>
+              <p class="mt-2 text-xs font-medium text-primary-700 dark:text-primary-300 flex items-center gap-1.5">
+                <i data-feather="list" class="w-3.5 h-3.5"></i>
+                Output is alphabetical, with cards beginning with <code>{{c…}}</code> grouped at the end to align more closely with Anki field sorting.
+              </p>
+            </div>
+            <span class="text-xs font-semibold px-3 py-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300">Up to 5,000 notes</span>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6">
+            <div class="space-y-5">
+              <div>
+                <label for="exportFile" id="exportDropZone" class="flex flex-col items-center justify-center min-h-44 rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-white/80 dark:bg-slate-900/80 hover:border-primary-500 hover:bg-primary-50/50 dark:hover:bg-slate-800 transition cursor-pointer text-center p-6">
+                  <i data-feather="upload-cloud" class="w-9 h-9 text-primary-500 mb-3"></i>
+                  <span class="font-semibold text-slate-800 dark:text-slate-100">Choose or drop an Anki package</span>
+                  <span id="exportFileName" class="mt-1 text-sm text-slate-500 dark:text-slate-400">Only .apkg files are accepted</span>
+                </label>
+                <input id="exportFile" type="file" accept=".apkg,application/octet-stream" class="sr-only" />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label for="exportModel" class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Model</label>
+                  <select id="exportModel" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm">
+                    <option value="gpt-4.1-mini">gpt-4.1-mini (fast)</option>
+                    <option value="gpt-4.1">gpt-4.1 (quality)</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="exportBatchSize" class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Cards per batch</label>
+                  <select id="exportBatchSize" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm">
+                    <option value="10">10 (recommended)</option>
+                    <option value="5">5</option>
+                    <option value="20">20</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label for="exportRules" class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Extra Cloze Rules (optional)</label>
+                <textarea id="exportRules" rows="4" placeholder="Use the Refiner defaults, or add instructions for this deck…" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+              </div>
+
+              <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 p-3">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <label for="ankiSearchCue" class="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                    <i data-feather="search" class="w-3.5 h-3.5"></i>
+                    Anki Search Cue
+                  </label>
+                  <span id="ankiSearchCueStatus" class="text-[11px] text-slate-400" aria-live="polite">Saved in this browser</span>
+                </div>
+                <textarea id="ankiSearchCue" rows="3" spellcheck="false" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary-500">is:new -tag:e -&quot;note:Image Occlusion Enhanced++&quot;</textarea>
+                <div class="flex justify-end gap-2 mt-2">
+                  <button id="copyAnkiSearchCue" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold transition">
+                    <i data-feather="copy" class="w-3.5 h-3.5"></i>
+                    Copy
+                  </button>
+                  <button id="saveAnkiSearchCue" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold transition">
+                    <i data-feather="save" class="w-3.5 h-3.5"></i>
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <button id="processExport" type="button" disabled class="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-feather="zap" class="w-4 h-4"></i>
+                Extract &amp; Refine Deck
+              </button>
+              <button id="cancelExport" type="button" class="hidden w-full px-4 py-2 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition">Stop processing</button>
+            </div>
+
+            <div class="space-y-4 min-w-0">
+              <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <span id="exportStatus" class="text-sm font-medium text-slate-700 dark:text-slate-200">Choose a deck to begin.</span>
+                  <span id="exportProgressLabel" class="text-xs text-slate-500 dark:text-slate-400">0%</span>
+                </div>
+                <div class="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" role="progressbar" aria-label="Export refinement progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="exportProgressTrack">
+                  <div id="exportProgress" class="h-full w-0 bg-gradient-to-r from-primary-500 to-secondary-500 transition-all duration-300"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-3 mt-4 text-center">
+                  <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-2"><div id="exportDetected" class="font-bold text-slate-800 dark:text-slate-100">0</div><div class="text-[11px] text-slate-500">Detected</div></div>
+                  <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-2"><div id="exportCompleted" class="font-bold text-slate-800 dark:text-slate-100">0</div><div class="text-[11px] text-slate-500">Refined</div></div>
+                  <div class="rounded-lg bg-slate-50 dark:bg-slate-800 p-2"><div id="exportFailed" class="font-bold text-slate-800 dark:text-slate-100">0</div><div class="text-[11px] text-slate-500">Needs review</div></div>
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+                <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                  <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Refined preview</span>
+                  <div class="flex gap-2">
+                    <button id="downloadExportTxt" type="button" disabled class="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-40">Download .txt</button>
+                    <button id="downloadExportDoc" type="button" disabled class="text-xs px-3 py-1.5 rounded-lg bg-secondary-50 dark:bg-secondary-900/30 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-100 disabled:opacity-40">Download Word</button>
+                  </div>
+                </div>
+                <div id="exportPreview" class="min-h-72 max-h-[32rem] overflow-y-auto p-4 space-y-3">
+                  <div class="h-64 flex flex-col items-center justify-center text-slate-400 text-center">
+                    <i data-feather="file-text" class="w-10 h-10 opacity-30 mb-2"></i>
+                    <p class="text-sm">Refined cards will appear here</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
