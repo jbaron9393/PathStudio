@@ -1,3 +1,29 @@
+function sortExportCardsForAnki(cards) {
+  const sortDetails = (card) => {
+    const rawText = String(card?.text || "").trim();
+    const startsWithCloze = /^\{\{c\d+::/i.test(rawText);
+    const visibleText = rawText
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\{\{c\d+::(.*?)(?:::[^}]*)?\}\}/gi, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { startsWithCloze, visibleText };
+  };
+
+  return [...cards].sort((a, b) => {
+    const left = sortDetails(a);
+    const right = sortDetails(b);
+    if (left.startsWithCloze !== right.startsWithCloze) {
+      return left.startsWithCloze ? 1 : -1;
+    }
+    const alphabetical = left.visibleText.localeCompare(right.visibleText, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+    return alphabetical || (Number(a.sourceOrder) || 0) - (Number(b.sourceOrder) || 0);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ============================
   // CLOZE REFINER TAB WIRING
@@ -456,7 +482,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderExportPreview(cards) {
     exportPreview.replaceChildren();
-    const orderedCards = [...cards].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    const orderedCards = sortExportCardsForAnki(cards);
     orderedCards.slice(0, 100).forEach((card, index) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
@@ -490,8 +516,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function exportAsText() {
-    return [...refinedExportCards]
-      .sort((a, b) => a.sourceOrder - b.sourceOrder)
+    return sortExportCardsForAnki(refinedExportCards)
       .map((card, index) => `NOTE ${index + 1}\n${card.text}`)
       .join("\n\n===CARD===\n\n");
   }
@@ -609,7 +634,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   downloadExportTxt?.addEventListener("click", () => downloadExport(exportAsText(), "text/plain;charset=utf-8", "txt"));
   downloadExportDoc?.addEventListener("click", () => {
-    const body = [...refinedExportCards].sort((a, b) => a.sourceOrder - b.sourceOrder).map((card, index) =>
+    const body = sortExportCardsForAnki(refinedExportCards).map((card, index) =>
       `<h2>Note ${index + 1}</h2><p>${escapeDocumentText(card.text).replace(/\n/g, "<br>")}</p>`,
     ).join("<hr>");
     const documentHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Refined Anki Notes</title><style>body{font-family:Calibri,Arial,sans-serif;line-height:1.5;margin:40px}h1{color:#312e81}h2{font-size:14pt;color:#4338ca;margin-top:22px}p{white-space:normal}hr{border:0;border-top:1px solid #ddd}</style></head><body><h1>Refined Anki Notes</h1>${body}</body></html>`;
