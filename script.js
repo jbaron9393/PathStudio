@@ -441,6 +441,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const exportModel = document.getElementById("exportModel");
   const exportBatchSize = document.getElementById("exportBatchSize");
   const exportRules = document.getElementById("exportRules");
+  const ankiSearchCue = document.getElementById("ankiSearchCue");
+  const ankiSearchCueStatus = document.getElementById("ankiSearchCueStatus");
+  const copyAnkiSearchCue = document.getElementById("copyAnkiSearchCue");
+  const saveAnkiSearchCue = document.getElementById("saveAnkiSearchCue");
   const processExport = document.getElementById("processExport");
   const cancelExport = document.getElementById("cancelExport");
   const exportStatus = document.getElementById("exportStatus");
@@ -457,6 +461,14 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedExportFile = null;
   let refinedExportCards = [];
   let exportCancelled = false;
+  const ANKI_SEARCH_CUE_STORAGE_KEY = "pathStudio.ankiSearchCue";
+
+  try {
+    const savedSearchCue = localStorage.getItem(ANKI_SEARCH_CUE_STORAGE_KEY);
+    if (savedSearchCue !== null) ankiSearchCue.value = savedSearchCue;
+  } catch (_error) {
+    ankiSearchCueStatus.textContent = "Browser storage unavailable";
+  }
 
   function setExportProgress(completed, total) {
     const percent = total ? Math.round((completed / total) * 100) : 0;
@@ -627,6 +639,27 @@ document.addEventListener("DOMContentLoaded", () => {
     exportDropZone.classList.remove("border-primary-600", "bg-primary-50");
   }));
   exportDropZone?.addEventListener("drop", (event) => selectExportFile(event.dataTransfer?.files?.[0]));
+  ankiSearchCue?.addEventListener("input", () => {
+    ankiSearchCueStatus.textContent = "Unsaved changes";
+  });
+  saveAnkiSearchCue?.addEventListener("click", () => {
+    try {
+      localStorage.setItem(ANKI_SEARCH_CUE_STORAGE_KEY, ankiSearchCue.value);
+      ankiSearchCueStatus.textContent = "Saved in this browser";
+    } catch (_error) {
+      ankiSearchCueStatus.textContent = "Could not save";
+    }
+  });
+  copyAnkiSearchCue?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(ankiSearchCue.value);
+      ankiSearchCueStatus.textContent = "Copied to clipboard";
+    } catch (_error) {
+      ankiSearchCue.select();
+      const copied = document.execCommand("copy");
+      ankiSearchCueStatus.textContent = copied ? "Copied to clipboard" : "Copy failed";
+    }
+  });
   processExport?.addEventListener("click", processAnkiExport);
   cancelExport?.addEventListener("click", () => {
     exportCancelled = true;
