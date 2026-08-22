@@ -3,14 +3,19 @@ console.log("Loaded server.js from:", process.cwd());
 import express from "express";
 import dotenv from "dotenv";
 import path from "path";
+import os from "os";
 import { existsSync, promises as fs } from "fs";
 import { fileURLToPath } from "url";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import * as zlib from "zlib";
 import { syncGrossingManualVendor } from "./scripts/sync-grossing-manual.mjs";
 
 dotenv.config({ override: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
 
 const ADAPTIVE_PRESETS = new Set(["micro", "gross", "path"]);
 const LEARNING_DIR = path.join(__dirname, "data");
@@ -203,12 +208,12 @@ function renderLoginPage(errorText = "") {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body style="font-family:Arial,sans-serif;background:#f8fafc;display:grid;place-items:center;min-height:100vh;margin:0;">
-    <form method="post" action="/api/login" style="width:min(420px,92vw);background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px;box-shadow:0 8px 24px rgba(15,23,42,.08);">
+    <form method="post" action="/api/login" style="box-sizing:border-box;width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px;box-shadow:0 8px 24px rgba(15,23,42,.08);">
       <h1 style="margin:0 0 6px;font-size:20px;">Sign in</h1>
       <p style="margin:0 0 16px;color:#475569;">Enter your username/path to open Cloze Refiner.</p>
       ${safeError}
       <label for="username" style="display:block;font-weight:600;margin-bottom:6px;">Username</label>
-      <input id="username" name="username" type="text" required autofocus style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;" />
+      <input id="username" name="username" type="text" required autofocus style="box-sizing:border-box;width:100%;max-width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;" />
       <label style="display:flex;align-items:center;gap:8px;margin:14px 0 16px;color:#334155;">
         <input type="checkbox" name="remember" value="1" />
         Remember me on this browser
@@ -265,6 +270,92 @@ app.get("/health", (req, res) => res.status(200).send("ok"));
 
 // Apply auth to protected app content and API routes
 app.use(requireLogin);
+
+// Extract note fields from an Anki package without modifying the uploaded deck.
+// An .apkg is a ZIP archive containing a SQLite collection database.
+app.post(
+  "/api/exports/apkg",
+  express.raw({ type: "application/octet-stream", limit: "100mb" }),
+  async (req, res) => {
+    let tempDir = "";
+    try {
+      const fileName = decodeURIComponent(String(req.get("x-file-name") || "deck.apkg"));
+      if (!fileName.toLowerCase().endsWith(".apkg")) {
+        return res.status(400).send("Please upload an .apkg file.");
+      }
+      if (!Buffer.isBuffer(req.body) || req.body.length < 4) {
+        return res.status(400).send("The uploaded .apkg file is empty.");
+      }
+      if (req.body[0] !== 0x50 || req.body[1] !== 0x4b) {
+        return res.status(400).send("The uploaded file is not a valid Anki package.");
+      }
+
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pathstudio-apkg-"));
+      const archivePath = path.join(tempDir, "upload.apkg");
+      const databasePath = path.join(tempDir, "collection.sqlite");
+      await fs.writeFile(archivePath, req.body);
+
+      const { stdout: archiveList } = await execFileAsync("unzip", ["-Z1", archivePath], {
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      const databaseEntry = String(archiveList)
+        .split(/\r?\n/)
+        .find((entry) => /^(?:collection\.anki2|collection\.anki21b?)$/i.test(entry.trim()));
+      if (!databaseEntry) {
+        return res.status(400).send("This package does not contain an Anki collection database.");
+      }
+
+      const { stdout: database } = await execFileAsync(
+        "unzip",
+        ["-p", archivePath, databaseEntry.trim()],
+        { encoding: "buffer", maxBuffer: 250 * 1024 * 1024 },
+      );
+      let collectionDatabase = database;
+      if (/\.anki21b$/i.test(databaseEntry.trim())) {
+        if (typeof zlib.zstdDecompress !== "function") {
+          return res.status(500).send("This newer Anki package requires Node.js 22.15 or later to decompress.");
+        }
+        collectionDatabase = await promisify(zlib.zstdDecompress)(database);
+      }
+      await fs.writeFile(databasePath, collectionDatabase);
+
+      const { stdout: noteJson } = await execFileAsync(
+        "sqlite3",
+        ["-json", "-readonly", databasePath, "SELECT id, tags, hex(flds) AS fldsHex FROM notes ORDER BY id LIMIT 5001;"],
+        { maxBuffer: 100 * 1024 * 1024 },
+      );
+      const rows = JSON.parse(noteJson || "[]");
+      if (rows.length > 5000) {
+        return res.status(413).send("This deck has more than 5,000 notes. Export a smaller Anki deck and try again.");
+      }
+
+      const notes = rows.map((row, index) => {
+        const rawFields = Buffer.from(String(row.fldsHex || ""), "hex").toString("utf8");
+        const fields = rawFields
+          .split("\u001f")
+          .map((field) => field.trim());
+        return {
+          id: String(row.id || index + 1),
+          tags: String(row.tags || "").trim(),
+          fields,
+          text: fields.filter(Boolean).join("\n"),
+        };
+      }).filter((note) => note.text);
+
+      return res.json({ fileName, noteCount: notes.length, notes });
+    } catch (error) {
+      console.error("APKG extraction failed:", error);
+      const missingTool = error?.code === "ENOENT";
+      return res.status(500).send(
+        missingTool
+          ? "APKG extraction requires the unzip and sqlite3 utilities on the server."
+          : `Unable to read this Anki package: ${error?.message || error}`,
+      );
+    } finally {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  },
+);
 
 // Static files protected behind login
 app.use(express.static(__dirname));
