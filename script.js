@@ -28,6 +28,7 @@ function stripExportPresentationFormatting(text) {
   return String(text || "")
     // Preserve Anki's {{c1::...}} cloze syntax, but turn HTML structure into
     // plain text so previews, copies, and downloads contain no markup code.
+    .replace(/<\s*\{\{c\d+::(?:div|font|span|b|strong|i|em|u)\}\}[^>]*>/gi, "")
     .replace(/<br\s*\/?\s*>/gi, "\n")
     .replace(/<\/(?:div|p|li|ul|ol|h[1-6])\s*>/gi, "\n")
     .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
@@ -613,7 +614,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       for (let start = 0; start < notes.length; start += batchSize) {
         if (exportCancelled) break;
-        const batch = notes.slice(start, start + batchSize);
+        const batch = notes.slice(start, start + batchSize).map((note) => ({
+          ...note,
+          text: stripExportPresentationFormatting(note.text),
+        }));
         exportStatus.textContent = `Refining notes ${start + 1}–${Math.min(start + batch.length, notes.length)} of ${notes.length}…`;
         try {
           const result = await apiPostJson(
