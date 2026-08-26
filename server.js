@@ -556,11 +556,15 @@ function removePartialWordClozes(text) {
 
 function hasInvalidClozeShape(text) {
   const value = String(text || "");
+  const weakAnchors = new Set([
+    "collect", "first-trimester", "gram", "more", "months", "severe", "temporal",
+  ]);
   if (/<\s*\{\{c\d+::/i.test(value)) return true;
 
   for (const match of value.matchAll(/\{\{c\d+::([^{}]*?)(?:::[^{}]*?)?\}\}/gi)) {
     const answer = String(match[1] || "").trim();
     if (answer.split(/\s+/).filter(Boolean).length > 2) return true;
+    if (weakAnchors.has(answer.toLowerCase().replace(/[.,;:!?]+$/g, ""))) return true;
     const previous = value[match.index - 1] || "";
     const next = value[match.index + match[0].length] || "";
     if (/[a-z0-9]/i.test(previous) || /[a-z0-9]/i.test(next)) return true;
@@ -890,6 +894,12 @@ EXPORT CONTENT-PRESERVATION RULES:
 - Return plain card text and Anki cloze wrappers only. Do not output HTML tags, style attributes, text colors, Markdown, or code fences.
 - For a list enclosed by one cloze, unwrap the list and reuse that cloze number on the 2–4 highest-yield pathology terms rather than clozing the whole list or merely its first item.
 - In export mode, you may add a new sequential cloze when a long card contains an important unclozed diagnosis, mechanism, hallmark histology, or complication. Add only what materially improves recall and do not over-cloze.
+- Export mode may relocate or remove an existing poor cloze; preserve the tested fact, not a bad wrapper. Choose the answer the prompt is actually asking for.
+- Never cloze generic grammar or low-information words such as "more," "severe," "collect," "Gram," "temporal," or a unit such as "months." Cloze the discriminating diagnosis, finding, organism, specimen, or number instead.
+- For a number plus unit, cloze the number and leave the unit visible (for example, {{c1::3}} months). For an instruction, leave the action visible and cloze the specimen or test (for example, Collect first voided {{c1::urine}}).
+- Reuse a cloze number for tightly linked facts that should be recalled together, and consolidate excessive numbering into a small logical set. Keep numbering sequential.
+- Format disease-to-repeat, organism-to-product, syndrome-to-genetics, and similar mappings as short parallel lines. Cloze the distinguishing side of each relationship, not the heading or filler text.
+- Favor board-discriminating pathology anchors: the diagnosis after sensitivity/specificity language, hallmark morphology, causative mutation, characteristic organism, key lab, inheritance, and defining complication.
 ` : "";
 
     let input = "";
@@ -963,7 +973,9 @@ ${out}
 Return only the repaired cards, separated by ${d} exactly as in the source.
 - Condense redundant wording and reorganize long cards into skimmable sections, while retaining core pathology mechanisms, findings, and complications.
 - Every cloze answer must be a complete, medically meaningful 1–2 word term.
-- Never cloze a word fragment, HTML tag, attribute, number, whole sentence, or whole list.
+- Never cloze a word fragment, HTML tag, attribute, list-item number, whole sentence, or whole list.
+- Replace vague clozes on words like "more," "severe," "collect," "Gram," "temporal," or "months" with the actual discriminating answer. Cloze a number rather than its unit and a specimen/test rather than an instruction verb.
+- You may relocate, remove, add, or reuse cloze wrappers as needed in export mode; keep a small logical set of sequential cloze numbers and preserve the underlying facts.
 - If one cloze wraps a list, unwrap it and reuse that same cloze number on the 2–4 highest-yield pathology terms; keep all other items visible.
 - Output plain text plus Anki {{cN::answer}} wrappers only: no HTML, Markdown, code fences, or commentary.
 `.trim();
