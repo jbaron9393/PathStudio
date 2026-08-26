@@ -617,6 +617,44 @@ function capClozesToInput(outText, inText, delimiter = "===CARD===") {
   return fixedCards.join(d);
 }
 
+function retainOriginalCardsWhenContentIsLost(outText, inText, delimiter = "===CARD===") {
+  const d = String(delimiter || "===CARD===");
+  const outputCards = String(outText || "").split(d);
+  const inputCards = String(inText || "").split(d);
+
+  const contentTokens = (card) => String(card || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\{\{c\d+::|\}\}/gi, " ")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)?.filter((token) => token.length > 1) || [];
+
+  return inputCards.map((inputCard, index) => {
+    const outputCard = outputCards[index];
+    if (!outputCard?.trim()) return inputCard;
+
+    const inputTokens = contentTokens(inputCard);
+    if (inputTokens.length < 8) return outputCard;
+
+    // Compare token counts as a multiset so repeated numbered-list content is
+    // also protected. If refinement drops substantial source information, the
+    // untouched original is safer than an incomplete card.
+    const available = new Map();
+    contentTokens(outputCard).forEach((token) => {
+      available.set(token, (available.get(token) || 0) + 1);
+    });
+    let retained = 0;
+    inputTokens.forEach((token) => {
+      const count = available.get(token) || 0;
+      if (count > 0) {
+        retained += 1;
+        available.set(token, count - 1);
+      }
+    });
+
+    return retained / inputTokens.length >= 0.8 ? outputCard : inputCard;
+  }).join(d);
+}
+
 
 async function callOpenAI({ apiKey, model, temperature, input }) {
   const r = await fetch("https://api.openai.com/v1/responses", {
@@ -793,7 +831,8 @@ app.post("/api/refine", async (req, res) => {
       model = "gpt-4.1-mini",
       temperature = 0.2,
       delimiter = "===CARD===",
-      extraRules = ""
+      extraRules = "",
+      preserveContent = false
     } = req.body || {};
 
     const rawText = String(text || "").trim();
@@ -801,6 +840,12 @@ app.post("/api/refine", async (req, res) => {
 
     const d = String(delimiter || "===CARD===");
     const extra = String(extraRules || "").trim();
+    const preservationRules = preserveContent ? `
+EXPORT CONTENT-PRESERVATION RULES:
+- Retain ALL facts, diagnoses, qualifiers, examples, numbered items, and other core information from every original card.
+- You may correct wording and reorganize for clarity, but MUST NOT summarize, shorten, collapse, or omit content.
+- Preserve existing cloze answers in full, including long lists inside a single cloze. Do not reduce them to short anchors.
+` : "";
 
     let input = "";
 
@@ -812,6 +857,7 @@ app.post("/api/refine", async (req, res) => {
 You are editing Anki cloze cards.
 
 ${RULES}
+${preservationRules}
 
 USER-SPECIFIED RULES:
 - Apply the user's Extra Cloze Rules in addition to the base rules above.
@@ -838,6 +884,7 @@ ${rawText}
       // =======================
       input = `
 ${RULES}
+${preservationRules}
 
 BATCH MODE INSTRUCTIONS
 - The user input may contain multiple cards separated by the delimiter: ${d}
@@ -860,9 +907,10 @@ ${rawText}
     // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
     fixed = capClozesToInput(fixed, rawText, d);
-    fixed = enforceClozeWordLimit(fixed, 3);
+    if (!preserveContent) fixed = enforceClozeWordLimit(fixed, 3);
     fixed = renumberClozesPerCard(fixed, d);
     fixed = limitEmphasisFormatting(fixed, d, 3, 3);
+    if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
 
     return res.json({ text: fixed });
   } catch (e) {
