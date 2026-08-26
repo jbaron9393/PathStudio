@@ -995,6 +995,7 @@ Return only the repaired cards, separated by ${d} exactly as in the source.
     fixed = removePartialWordClozes(fixed);
     fixed = renumberClozesPerCard(fixed, d);
     fixed = limitEmphasisFormatting(fixed, d, 3, 3);
+    if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
 
     return res.json({ text: fixed });
   } catch (e) {
