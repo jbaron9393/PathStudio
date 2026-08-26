@@ -26,13 +26,20 @@ function sortExportCardsForAnki(cards) {
 
 function stripExportPresentationFormatting(text) {
   return String(text || "")
-    // Preserve Anki's {{c1::...}} cloze syntax while removing presentation-only
-    // markup that makes the preview and downloaded text awkward to paste.
+    // Preserve Anki's {{c1::...}} cloze syntax, but turn HTML structure into
+    // plain text so previews, copies, and downloads contain no markup code.
     .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/?(?:b|strong|i|em|u)>/gi, "")
+    .replace(/<\/(?:div|p|li|ul|ol|h[1-6])\s*>/gi, "\n")
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
     .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
     .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
-    .replace(/(^|[\s(])([*_])(?=\S)([^\n]*?\S)\2(?=$|[\s).,;:!?])/g, "$1$3");
+    .replace(/(^|[\s(])([*_])(?=\S)([^\n]*?\S)\2(?=$|[\s).,;:!?])/g, "$1$3")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
