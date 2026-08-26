@@ -574,7 +574,10 @@ function stripPresentationHtml(text) {
     .replace(/<br\s*\/?\s*>/gi, "\n")
     .replace(/<\/(?:div|p|li|ul|ol|h[1-6])\s*>/gi, "\n")
     .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
-    .replace(/&nbsp;/gi, " ");
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&gt;/gi, ">")
+    .replace(/&lt;/gi, "<")
+    .replace(/&amp;/gi, "&");
 }
 
 function limitEmphasisFormatting(text, delimiter = "===CARD===", maxSpans = 3, maxWords = 3) {
@@ -687,7 +690,7 @@ function retainOriginalCardsWhenContentIsLost(outText, inText, delimiter = "===C
     // Long, wordy cards are allowed to lose redundant phrasing as they are
     // condensed. Shorter cards retain the stricter threshold so a concise
     // source is not accidentally gutted.
-    const minimumRetention = inputTokens.length >= 70 ? 0.55 : 0.8;
+    const minimumRetention = inputTokens.length >= 70 ? 0.4 : 0.8;
     return retained / inputTokens.length >= minimumRetention ? outputCard : inputCard;
   }).join(d);
 }
@@ -971,6 +974,9 @@ Return only the repaired cards, separated by ${d} exactly as in the source.
     // User rules can steer content selection, but should not accidentally create
     // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
+    // Content fallback must happen before formatting/cloze enforcement. Doing it
+    // last could restore the original card's oversized clozes unchanged.
+    if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
     fixed = stripPresentationHtml(fixed);
     if (!preserveContent) fixed = capClozesToInput(fixed, rawText, d);
     fixed = enforceClozeWordLimit(fixed, 2);
