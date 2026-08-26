@@ -24,6 +24,25 @@ function sortExportCardsForAnki(cards) {
   });
 }
 
+function stripExportPresentationFormatting(text) {
+  return String(text || "")
+    // Preserve Anki's {{c1::...}} cloze syntax, but turn HTML structure into
+    // plain text so previews, copies, and downloads contain no markup code.
+    .replace(/<\s*\{\{c\d+::(?:div|font|span|b|strong|i|em|u)\}\}[^>]*>/gi, "")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(?:div|p|li|ul|ol|h[1-6])\s*>/gi, "\n")
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
+    .replace(/(^|[\s(])([*_])(?=\S)([^\n]*?\S)\2(?=$|[\s).,;:!?])/g, "$1$3")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ============================
   // CLOZE REFINER TAB WIRING
@@ -498,13 +517,31 @@ document.addEventListener("DOMContentLoaded", () => {
     orderedCards.slice(0, 100).forEach((card, index) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
+      const header = document.createElement("div");
+      header.className = "flex items-center justify-between gap-3 mb-1.5";
       const label = document.createElement("div");
-      label.className = "text-xs font-semibold text-primary-600 dark:text-primary-400 mb-1.5";
+      label.className = "text-xs font-semibold text-primary-600 dark:text-primary-400";
       label.textContent = `Note ${index + 1}`;
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "inline-flex items-center gap-1 rounded-md bg-slate-200/80 dark:bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition";
+      copyButton.textContent = "Copy";
+      copyButton.setAttribute("aria-label", `Copy Note ${index + 1}`);
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(card.text);
+          copyButton.textContent = "Copied";
+          window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1500);
+        } catch (_error) {
+          copyButton.textContent = "Copy failed";
+          window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1500);
+        }
+      });
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 leading-relaxed";
-      appendSafeEmphasis(content, card.text);
-      item.append(label, content);
+      content.textContent = card.text;
+      header.append(label, copyButton);
+      item.append(header, content);
       exportPreview.appendChild(item);
     });
     if (orderedCards.length > 100) {
@@ -577,7 +614,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       for (let start = 0; start < notes.length; start += batchSize) {
         if (exportCancelled) break;
-        const batch = notes.slice(start, start + batchSize);
+        const batch = notes.slice(start, start + batchSize).map((note) => ({
+          ...note,
+          text: stripExportPresentationFormatting(note.text),
+        }));
         exportStatus.textContent = `Refining notes ${start + 1}–${Math.min(start + batch.length, notes.length)} of ${notes.length}…`;
         try {
           const result = await apiPostJson(
@@ -588,6 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
               temperature: 0.2,
               delimiter: "===CARD===",
               extraRules: exportRules.value,
+              preserveContent: true,
               clientDateContext: getClientDateContext(),
             },
             { timeoutMs: 120000 },
@@ -596,12 +637,20 @@ document.addEventListener("DOMContentLoaded", () => {
           batch.forEach((note, index) => {
             const output = outputs[index];
             if (!output) failures += 1;
-            refinedExportCards.push({ ...note, text: output || note.text, failed: !output });
+            refinedExportCards.push({
+              ...note,
+              text: stripExportPresentationFormatting(output || note.text),
+              failed: !output,
+            });
           });
         } catch (error) {
           console.error("Export batch failed:", error);
           failures += batch.length;
-          refinedExportCards.push(...batch.map((note) => ({ ...note, failed: true })));
+          refinedExportCards.push(...batch.map((note) => ({
+            ...note,
+            text: stripExportPresentationFormatting(note.text),
+            failed: true,
+          })));
         }
 
         exportCompleted.textContent = String(refinedExportCards.length - failures);
