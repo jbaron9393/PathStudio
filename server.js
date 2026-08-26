@@ -430,8 +430,8 @@ FORMATTING
 CLOZE RULES
 - Never use nested clozes.
 - Cloze numbers must be sequential starting at c1 within each card.
-- Cloze only 1 to 3 words per cloze, NO MORE THAN THAT.
-- If something needs more than 3 words, split into multiple clozes.
+- Cloze 1–2 words whenever possible. Use 3 words only when the medical term cannot be shortened without becoming unclear; never cloze more than 3 words.
+- If an existing cloze contains a sentence or list, move all supporting text outside the wrapper and keep only a medically meaningful 1–2 word anchor clozed.
 - Use only as many clozes as necessary (do not over-cloze).
 - Reusing the same cloze number multiple times on a card is allowed when concepts are tightly linked.
 - If I specify a maximum number of clozes, obey it strictly.
@@ -457,7 +457,8 @@ IF INPUT ALREADY HAS CLOZES
 - If the user input already contains clozes ({{c...::}}), you MUST NOT add any new clozes.
 - Only edit existing cloze contents to comply with the rules.
 - Preserve all existing cloze blocks (do not delete them).
-- If an existing cloze block is too long, shorten the clozed text to a 1–3 word anchor (e.g., "hypnozoite", "Schuffner's dots", "48 hours") while keeping the surrounding sentence intact.
+- If an existing cloze block is too long, reorganize it so every original fact remains visible, but only a 1–2 word anchor is inside the wrapper (3 words only when unavoidable).
+- Never cloze a word fragment (for example, do not turn "Angelman" into "Angel{{c1::man}}"). Cloze the complete medical term or leave it visible.
 
 CLOZE NUMBERING (HARD RULE)
 - Within EACH card, cloze numbers MUST start at c1 and be sequential with NO gaps (c1, c2, c3, ...).
@@ -517,14 +518,11 @@ function pickAnchorWords(content, maxWords = 3) {
     }
   }
 
-  // Otherwise: take first maxWords "word tokens" (strip punctuation edges)
-  const words = s
-    .split(/\s+/)
-    .map(w => w.replace(/^[^\w]+|[^\w]+$/g, "")) // trim punctuation
-    .filter(Boolean);
-
+  // Otherwise prefer the first complete non-numeric term. This keeps list
+  // numbering outside the cloze and guarantees an exact substring match.
+  const words = Array.from(s.matchAll(/[A-Za-z][A-Za-z'’-]*/g));
   if (!words.length) return s;
-  return words.slice(0, maxWords).join(" ");
+  return words[0][0];
 }
 
 function enforceClozeWordLimit(text, maxWords = 3) {
@@ -538,9 +536,21 @@ function enforceClozeWordLimit(text, maxWords = 3) {
 
     if (words.length <= maxWords) return full;
 
-    // Salvage: replace long cloze content with a short anchor (1–3 words)
+    // Keep the full answer visible and move only the short anchor inside the
+    // cloze. The former implementation discarded everything after the anchor.
     const anchor = pickAnchorWords(content, maxWords);
-    return `{{c${n}::${anchor}${hint ? `::${hint}` : ""}}}`;
+    const anchorIndex = content.toLowerCase().indexOf(anchor.toLowerCase());
+    if (anchorIndex < 0) return content;
+    const wrappedAnchor = `{{c${n}::${content.slice(anchorIndex, anchorIndex + anchor.length)}${hint ? `::${hint}` : ""}}}`;
+    return `${content.slice(0, anchorIndex)}${wrappedAnchor}${content.slice(anchorIndex + anchor.length)}`;
+  });
+}
+
+function removePartialWordClozes(text) {
+  return String(text || "").replace(/\{\{c\d+::([^{}]*?)(?:::[^{}]*?)?\}\}/gi, (full, answer, offset, source) => {
+    const previous = source[offset - 1] || "";
+    const next = source[offset + full.length] || "";
+    return /[a-z0-9]/i.test(previous) || /[a-z0-9]/i.test(next) ? answer : full;
   });
 }
 
@@ -844,7 +854,8 @@ app.post("/api/refine", async (req, res) => {
 EXPORT CONTENT-PRESERVATION RULES:
 - Retain ALL facts, diagnoses, qualifiers, examples, numbered items, and other core information from every original card.
 - You may correct wording and reorganize for clarity, but MUST NOT summarize, shorten, collapse, or omit content.
-- Preserve existing cloze answers in full, including long lists inside a single cloze. Do not reduce them to short anchors.
+- Improve existing clozes according to the Refiner rules. For a long clozed list or sentence, retain every word as visible text but move only a medically meaningful 1–2 word anchor inside each cloze wrapper.
+- Reorder sections or list items when that makes the pathology concept easier to study.
 ` : "";
 
     let input = "";
@@ -907,7 +918,8 @@ ${rawText}
     // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
     fixed = capClozesToInput(fixed, rawText, d);
-    if (!preserveContent) fixed = enforceClozeWordLimit(fixed, 3);
+    fixed = enforceClozeWordLimit(fixed, 2);
+    fixed = removePartialWordClozes(fixed);
     fixed = renumberClozesPerCard(fixed, d);
     fixed = limitEmphasisFormatting(fixed, d, 3, 3);
     if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
