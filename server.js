@@ -684,7 +684,11 @@ function retainOriginalCardsWhenContentIsLost(outText, inText, delimiter = "===C
       }
     });
 
-    return retained / inputTokens.length >= 0.8 ? outputCard : inputCard;
+    // Long, wordy cards are allowed to lose redundant phrasing as they are
+    // condensed. Shorter cards retain the stricter threshold so a concise
+    // source is not accidentally gutted.
+    const minimumRetention = inputTokens.length >= 70 ? 0.55 : 0.8;
+    return retained / inputTokens.length >= minimumRetention ? outputCard : inputCard;
   }).join(d);
 }
 
@@ -875,12 +879,14 @@ app.post("/api/refine", async (req, res) => {
     const extra = String(extraRules || "").trim();
     const preservationRules = preserveContent ? `
 EXPORT CONTENT-PRESERVATION RULES:
-- Retain ALL facts, diagnoses, qualifiers, examples, numbered items, and other core information from every original card.
-- You may correct wording and reorganize for clarity, but MUST NOT summarize, shorten, collapse, or omit content.
-- Improve existing clozes according to the Refiner rules. For a long clozed list or sentence, retain every word as visible text but move only a medically meaningful 1–2 word anchor inside each cloze wrapper.
+- Retain all CORE medical facts, diagnoses, mechanisms, qualifiers, hallmark findings, and numbered items from every original card.
+- For long or repetitive cards, actively shorten redundant prose, combine overlapping statements, and reorganize into concise, skimmable sections. Do not merely reproduce a wordy paragraph.
+- Keep the minimum context needed to understand each mechanism and cloze; remove filler transitions and repeated explanations without removing board-relevant pathology facts.
+- Improve existing clozes according to the Refiner rules. For a long clozed list, retain every item as visible text; for a wordy sentence, retain its core fact while moving only a medically meaningful 1–2 word anchor inside the wrapper.
 - Reorder sections or list items when that makes the pathology concept easier to study.
 - Return plain card text and Anki cloze wrappers only. Do not output HTML tags, style attributes, text colors, Markdown, or code fences.
 - For a list enclosed by one cloze, unwrap the list and reuse that cloze number on the 2–4 highest-yield pathology terms rather than clozing the whole list or merely its first item.
+- In export mode, you may add a new sequential cloze when a long card contains an important unclozed diagnosis, mechanism, hallmark histology, or complication. Add only what materially improves recall and do not over-cloze.
 ` : "";
 
     let input = "";
@@ -945,14 +951,14 @@ ${rawText}
       const repairInput = `
 You are repairing Anki cloze cards for pathology boards.
 
-SOURCE CARDS (retain every fact):
+SOURCE CARDS (retain every core medical fact):
 ${rawText}
 
 DRAFT TO REPAIR:
 ${out}
 
 Return only the repaired cards, separated by ${d} exactly as in the source.
-- Reorganize for clarity when helpful, but do not omit or summarize source information.
+- Condense redundant wording and reorganize long cards into skimmable sections, while retaining core pathology mechanisms, findings, and complications.
 - Every cloze answer must be a complete, medically meaningful 1–2 word term.
 - Never cloze a word fragment, HTML tag, attribute, number, whole sentence, or whole list.
 - If one cloze wraps a list, unwrap it and reuse that same cloze number on the 2–4 highest-yield pathology terms; keep all other items visible.
@@ -966,7 +972,7 @@ Return only the repaired cards, separated by ${d} exactly as in the source.
     // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
     fixed = stripPresentationHtml(fixed);
-    fixed = capClozesToInput(fixed, rawText, d);
+    if (!preserveContent) fixed = capClozesToInput(fixed, rawText, d);
     fixed = enforceClozeWordLimit(fixed, 2);
     fixed = removePartialWordClozes(fixed);
     fixed = renumberClozesPerCard(fixed, d);
