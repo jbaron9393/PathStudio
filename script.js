@@ -628,7 +628,6 @@ document.addEventListener("DOMContentLoaded", () => {
               temperature: 0.2,
               delimiter: "===CARD===",
               extraRules: exportRules.value,
-              preserveContent: true,
               clientDateContext: getClientDateContext(),
             },
             { timeoutMs: 120000 },
