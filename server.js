@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as zlib from "zlib";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { syncGrossingManualVendor } from "./scripts/sync-grossing-manual.mjs";
 
 dotenv.config({ override: true });
@@ -409,6 +409,7 @@ app.post("/api/exports/apkg/rebuild", async (req, res) => {
   try {
     const edits = Array.isArray(req.body?.edits) ? req.body.edits : [];
     const statements = ["BEGIN IMMEDIATE;"];
+    let nextCardId = Date.now() * 1000;
 
     for (const edit of edits) {
       const noteId = String(edit?.noteId || "");
@@ -425,31 +426,50 @@ app.post("/api/exports/apkg/rebuild", async (req, res) => {
       if (!indexes.length || indexes.length !== editedFields.length) throw new Error(`Invalid field edit for note ${noteId}.`);
 
       const originalEditableText = indexes.map((fieldIndex) => originalFields[fieldIndex]).join("\n===ANKI_FIELD===\n");
-      if (exportVisibleText(editedFields.join("\n===ANKI_FIELD===\n")) !== exportVisibleText(originalEditableText)) {
-        throw new Error(`Note ${noteId} changed non-cloze content and was not written.`);
+      const editedText = editedFields.join("\n===ANKI_FIELD===\n");
+      if (JSON.stringify(exportMediaReferences(editedText)) !== JSON.stringify(exportMediaReferences(originalEditableText))) {
+        throw new Error(`Note ${noteId} changed an image or sound reference and was not written.`);
       }
       const oldNumbers = clozeNumbersInOrder(originalEditableText);
-      const normalized = renumberExportClozes(editedFields.join("\n===ANKI_FIELD===\n"));
-      if (normalized.numbers.length !== oldNumbers.length) throw new Error(`Note ${noteId} changed its cloze-group count.`);
-      const { stdout: cardOrdOutput } = await execFileAsync("sqlite3", [
-        "-readonly", job.databasePath,
-        `SELECT ord FROM cards WHERE nid=${noteId} ORDER BY ord;`,
+      const normalized = renumberExportClozes(editedText);
+      const newGroupCount = normalized.numbers.length;
+      if (!newGroupCount) throw new Error(`Note ${noteId} has no cloze groups after editing.`);
+      const { stdout: cardJson } = await execFileAsync("sqlite3", [
+        "-json", "-readonly", job.databasePath,
+        `SELECT id, ord FROM cards WHERE nid=${noteId} ORDER BY id;`,
       ]);
-      const cardOrds = new Set(String(cardOrdOutput).trim().split(/\s+/).filter(Boolean).map(Number));
-      if (oldNumbers.some((number) => !cardOrds.has(Number(number) - 1))) {
+      const cardRows = JSON.parse(cardJson || "[]");
+      const cardsByOrd = new Map(cardRows.map((card) => [Number(card.ord), card]));
+      const oldCards = oldNumbers.map((number) => cardsByOrd.get(Number(number) - 1));
+      if (oldCards.some((card) => !card)) {
         throw new Error(`Note ${noteId} does not have a card for every cloze group.`);
       }
 
       const normalizedFields = normalized.text.split("\n===ANKI_FIELD===\n");
       indexes.forEach((fieldIndex, index) => { originalFields[fieldIndex] = normalizedFields[index]; });
       const fieldHex = Buffer.from(originalFields.join("\u001f"), "utf8").toString("hex");
-      statements.push(`UPDATE notes SET flds=CAST(X'${fieldHex}' AS TEXT), mod=${Math.floor(Date.now() / 1000)}, usn=-1 WHERE id=${noteId};`);
-      oldNumbers.forEach((oldNumber) => {
-        statements.push(`UPDATE cards SET ord=ord+10000, mod=${Math.floor(Date.now() / 1000)}, usn=-1 WHERE nid=${noteId} AND ord=${Number(oldNumber) - 1};`);
-      });
-      oldNumbers.forEach((oldNumber, index) => {
-        statements.push(`UPDATE cards SET ord=${index}, mod=${Math.floor(Date.now() / 1000)}, usn=-1 WHERE nid=${noteId} AND ord=${Number(oldNumber) - 1 + 10000};`);
-      });
+      const sortField = exportSortField(originalFields[0]);
+      const sortFieldHex = Buffer.from(sortField, "utf8").toString("hex");
+      const checksum = Number.parseInt(createHash("sha1").update(sortField).digest("hex").slice(0, 8), 16);
+      const modifiedAt = Math.floor(Date.now() / 1000);
+      statements.push(`UPDATE notes SET flds=CAST(X'${fieldHex}' AS TEXT), sfld=CAST(X'${sortFieldHex}' AS TEXT), csum=${checksum}, mod=${modifiedAt}, usn=-1 WHERE id=${noteId};`);
+
+      const retainedCount = Math.min(oldCards.length, newGroupCount);
+      const oldCardIds = oldCards.map((card) => Number(card.id));
+      statements.push(`UPDATE cards SET ord=ord+10000 WHERE id IN (${oldCardIds.join(",")});`);
+      for (let index = 0; index < retainedCount; index += 1) {
+        statements.push(`UPDATE cards SET ord=${index}, mod=${modifiedAt}, usn=-1 WHERE id=${Number(oldCards[index].id)};`);
+      }
+      for (let index = retainedCount; index < oldCards.length; index += 1) {
+        const cardId = Number(oldCards[index].id);
+        statements.push(`DELETE FROM revlog WHERE cid=${cardId};`);
+        statements.push(`DELETE FROM cards WHERE id=${cardId};`);
+      }
+      for (let index = retainedCount; index < newGroupCount; index += 1) {
+        nextCardId += 1;
+        const sourceCardId = Number(oldCards[0].id);
+        statements.push(`INSERT INTO cards (id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,left,odue,odid,flags,data) SELECT ${nextCardId},nid,did,${index},${modifiedAt},-1,0,0,due,0,0,0,0,0,0,0,0,'' FROM cards WHERE id=${sourceCardId};`);
+      }
     }
     statements.push("COMMIT;");
     await execFileAsync("sqlite3", [job.databasePath, statements.join("\n")], { maxBuffer: 20 * 1024 * 1024 });
@@ -598,29 +618,51 @@ You are editing Anki cards for fast board-review recognition.
 
 These rules are the complete source of truth for Export-tab cloze editing. Do not use any other Anki editing rules.
 
-GOAL
-- Edit only cloze deletions unless the user explicitly instructs otherwise. Do not unnecessarily rewrite the card.
-- Preserve images, media references, HTML, formatting, and all non-cloze content.
-- Maintain meaning and medical accuracy. Do not invent facts or silently correct ambiguous medical content.
+CORE PRINCIPLE
+- Actively rewrite existing cloze boundaries. Existing spans are source material, not boundaries that must be preserved.
+- Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
+- Prefer 1–2 words or even a word fragment: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
+- Remove giant clozes, leave explanations visible, and rewrite surrounding wording when needed to make a concise, accurate, fast-review card.
 
-ANKI CLOZE STYLE
-1. Make clozes fast to recognize. Prefer the smallest high-yield distinguishing fragment: usually 1–2 words, or a word fragment when sufficient (for example {{c2::Hypo}}calcemia, {{c2::hyper}}phosphatemia, and renal {{c3::osteo}}dystrophy).
-2. Cloze only high-yield facts. Never hide explanatory prose, whole paragraphs, or long sentences; keep supporting context visible.
-3. Use visible clues already in the card and hide only the critical fragment (for example Site: {{c2::Bone}}).
-4. Related facts may share a cloze number.
-5. Renumber cloze groups consecutively within each note starting at c1. Do not force notes to stop at c3 and do not create unnecessary groups.
-6. Preserve the number of logical cloze groups when possible and combine related facts rather than creating extra cards.
-7. For tumor/pathology cards, prioritize the entity, characteristic site, defining morphology, distinctive IHC, defining molecular alteration, and genuinely high-yield age/sex associations. Avoid generic findings.
-8. For molecular alterations, cloze the distinctive component rather than a full sentence (for example EWSR1-{{c3::WT1}}, {{c1::BCOR-CCNB3}}, or {{c1::CIC-DUX4}}).
-9. For IHC, cloze only the most distinguishing marker or necessary small set, not a long panel.
-10. For histology, cloze the signature feature rather than the full description (for example nests of small cells in {{c1::desmoplastic}} stroma).
-11. Preserve factual wording except for an obvious typo. If information appears inaccurate or ambiguous, preserve and flag it rather than silently changing it.
-12. Preserve existing HTML, line breaks, images, and media references.
+WHAT TO CLOZE
+1. Prioritize diagnosis/entity, signature site, signature morphology, distinctive IHC, defining fusion/genetic alteration, key directional lab change, and genuinely high-yield age/sex associations.
+2. Usually leave explanatory physiology, mechanisms that reveal the answer, long lists, generic histology/markers, prognosis, and redundant details visible.
+3. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
+4. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
+5. Related facts may share one number. Do not create a separate cloze card for every fact.
+
+BOUNDARIES AND NUMBERING
+- You may remove, shrink, move, merge, or split old clozes.
+- Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
+- Usually use 1–4 logical groups. About three is a useful target for tumor cards, but retain c4 when a fourth distinct fact is truly useful.
+- For tumors, a useful pattern is c1 entity, c2 key site/morphology, and c3 defining IHC/genetics.
+
+QUALITY EXAMPLES
+- {{c1::Hypocalcemia}} becomes {{c1::Hypo}}calcemia.
+- {{c2::Hyperphosphatemia}} becomes {{c2::hyper}}phosphatemia.
+- {{c3::Renal osteodystrophy}} becomes renal {{c3::osteo}}dystrophy.
+- A giant Fabry cloze becomes: Fabry disease:<br>EM: {{c1::Zebra}} bodies<br>Due to α-{{c2::galactosidase A}} deficiency.
+- A long potassium explanation becomes: Acidosis → K+ shifts out → {{c1::hyper}}kalemia.<br>Alkalosis → K+ shifts in → {{c1::hypo}}kalemia.
+- DSRCT should emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, rather than hiding demographics, histology, IHC, and genetics in one giant cloze.
+- BCOR-CCNB3 should emphasize {{c1::BCOR-CCNB3}}, site {{c2::Bone}}, and {{c3::BCOR / CCNB3}} IHC.
+- CIC-DUX4 should emphasize {{c1::CIC-DUX4}}, site {{c2::Soft tissue}}, and {{c3::WT1}} IHC.
+
+ACCURACY AND STORAGE
+- Do not invent or silently change medical facts. Correct only obvious typos.
+- Preserve all image tags, sound references, and media filenames exactly.
+- Preserve useful HTML structure where possible. The website creates a separate clean-text preview.
+
+FINAL CHECK
+- Shorten every cloze longer than about 2–4 words unless the full phrase is itself the high-yield entity.
+- Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
+- Consider a partial-word cloze whenever it tests the same association faster.
+- Merge redundant groups and make numbering consecutive from c1.
+- Simplify again if the result would not be answerable in 2–5 seconds.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
 - Return only the edited field text: no commentary, labels, Markdown fences, or previews.
-- Do not alter non-cloze text. Do not delete images or formatting.
+- You may condense or reorganize visible wording to support fast review, but preserve its medical meaning and all media references.
 `.trim();
 
 function clozeNumbersInOrder(text) {
@@ -646,6 +688,21 @@ function renumberExportClozes(text) {
 
 function exportVisibleText(text) {
   return String(text || "").replace(/\{\{c\d+::([\s\S]*?)\}\}/gi, (_match, inner) => String(inner).split("::")[0]);
+}
+
+function exportMediaReferences(text) {
+  return Array.from(String(text || "").matchAll(/<img\b[^>]*>|\[sound:[^\]]+\]/gi))
+    .map((match) => match[0])
+    .sort();
+}
+
+function exportSortField(text) {
+  return exportVisibleText(text)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function pickAnchorWords(content, maxWords = 3) {
@@ -1005,16 +1062,15 @@ ${rawText}`;
 
     const cards = sourceFields.map((original, index) => {
       const candidate = outputFields[index];
-      const originalGroups = clozeNumbersInOrder(original);
       let warning = "";
       let edited = candidate;
 
-      if (candidate == null || exportVisibleText(candidate) !== exportVisibleText(original)) {
+      if (candidate == null || !clozeNumbersInOrder(candidate).length) {
         edited = original;
-        warning = "Proposed edit changed non-cloze content, so only numbering was updated.";
-      } else if (clozeNumbersInOrder(candidate).length !== originalGroups.length) {
+        warning = "No valid edited cloze text was returned, so only numbering was updated.";
+      } else if (JSON.stringify(exportMediaReferences(candidate)) !== JSON.stringify(exportMediaReferences(original))) {
         edited = original;
-        warning = "Proposed edit changed the number of cloze groups, so only numbering was updated.";
+        warning = "The proposed edit changed a media reference, so only numbering was updated.";
       }
 
       return { original, text: renumberExportClozes(edited).text, warning };
