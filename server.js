@@ -426,9 +426,11 @@ app.post("/api/exports/apkg/rebuild", async (req, res) => {
       if (!indexes.length || indexes.length !== editedFields.length) throw new Error(`Invalid field edit for note ${noteId}.`);
 
       const originalEditableText = indexes.map((fieldIndex) => originalFields[fieldIndex]).join("\n===ANKI_FIELD===\n");
-      const editedText = enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 2);
-      if (!exportClozesWithinWordLimit(editedText, 2)) {
-        throw new Error(`Note ${noteId} contains an invalid cloze longer than two words.`);
+      const editedText = removeFillerExportClozes(
+        enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 2),
+      );
+      if (!exportClozesWithinWordLimit(editedText, 2) || !exportClozesAreMeaningful(editedText)) {
+        throw new Error(`Note ${noteId} contains an invalid cloze answer.`);
       }
       if (JSON.stringify(exportMediaReferences(editedText)) !== JSON.stringify(exportMediaReferences(originalEditableText))) {
         throw new Error(`Note ${noteId} changed an image or sound reference and was not written.`);
@@ -622,7 +624,21 @@ You are editing Anki cards for fast board-review recognition.
 These rules are the complete source of truth for Export-tab cloze editing. Do not use any other Anki editing rules.
 
 CORE PRINCIPLE
-- Actively rewrite existing cloze boundaries. Existing spans are source material, not boundaries that must be preserved.
+For every note, perform these two steps internally, in order. This is a card-rewrite task, not merely a cloze-placement task.
+
+STEP 1 — REWRITE/SUMMARIZE THE CARD
+- First read the entire original note and identify the few high-yield facts it is actually teaching.
+- Before adding any clozes, rewrite it into concise, intentional rapid-review form.
+- Shorten sentences; remove redundant explanations and low-yield details; convert paragraphs to concise phrases; combine repetitions; use arrows/abbreviations; reorganize and simplify wording; retain only useful explanatory context.
+- Do not merely preserve the original wording. The result should look intentionally written by an experienced pathology resident.
+- Examples before clozing:
+  - A long Fabry paragraph becomes: Fabry disease:<br>EM: Zebra pattern of lipid inclusions<br>Due to GL3 accumulation from α-galactosidase A deficiency.
+  - Magnesium/calcium prose becomes: Low Mg → hypocalcemia via ↓ PTH release.
+  - Pregnancy renal prose becomes: Pregnancy:<br>↑ GFR → ↓ serum Cr/BUN.
+
+STEP 2 — ADD MINIMAL CLOZES
+- Only after rewriting, choose the smallest meaningful high-yield facts to recall.
+- Existing spans and numbers are only source material. Do not preserve their boundaries, count, or placement.
 - Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
 - HARD RULE: every individual cloze answer must contain only 1–2 whitespace-separated words. This is mandatory, not a preference.
 - A named entity or molecular alteration may remain intact only when it is an inseparable one- or two-word name. Otherwise hide only its distinguishing portion.
@@ -635,6 +651,13 @@ WHAT TO CLOZE
 3. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
 4. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
 5. Related facts may share one number. Do not create a separate cloze card for every fact.
+6. A short cloze is not automatically valid: its answer must demonstrate useful medical knowledge when recalled.
+
+NEVER CLOZE FILLER
+- Never cloze articles, conjunctions, prepositions, section labels, generic verbs/adjectives, or grammar-predictable words.
+- Specifically do not cloze: the, a, an, due, if, in, on, of, to, and, or, patchy, higher, or lower. Direction words may be clozed only when the direction itself is the medical fact being tested.
+- Bad anchors include {{c1::The}}, {{c1::In}}, {{c1::Due}}, {{c1::IF}}, {{c1::Patchy}} CD99+, and {{c1::Higher}} temperature.
+- Before accepting an answer, ask whether recalling the missing text proves useful medical knowledge. If not, remove or move that cloze.
 
 BOUNDARIES AND NUMBERING
 - You may remove, shrink, move, merge, or split old clozes.
@@ -659,12 +682,14 @@ ACCURACY AND STORAGE
 - Preserve useful HTML structure where possible. The website creates a separate clean-text preview.
 
 FINAL CHECK
+- Confirm that you actually rewrote/summarized the source and removed redundant or low-yield prose before adding clozes.
 - Inspect every {{cN::answer}} and do not return the card while any answer contains more than two words.
 - For every oversized cloze, remove the old wrapper, select its most important one- or two-word answer, wrap only that answer, and leave all remaining text visible.
 - Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
 - Consider a partial-word cloze whenever it tests the same association faster.
 - Merge redundant groups and make numbering consecutive from c1.
 - Simplify again if the result would not be answerable in 2–5 seconds.
+- Confirm every cloze tests meaningful medical knowledge and no cloze contains filler or a grammar-only cue.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
@@ -719,6 +744,27 @@ function exportClozesWithinWordLimit(text, maxWords = 2) {
     if (!visibleAnswer || visibleAnswer.split(/\s+/).filter(Boolean).length > maxWords) return false;
   }
   return true;
+}
+
+const EXPORT_CLOZE_FILLER_WORDS = new Set([
+  "a", "an", "and", "due", "if", "in", "of", "on", "or", "patchy", "the", "to",
+]);
+
+function exportClozesAreMeaningful(text) {
+  for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
+    const answer = String(match[1] || "").split("::")[0].replace(/<[^>]*>/g, " ").trim();
+    const words = answer.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    if (!words.length || words.some((word) => EXPORT_CLOZE_FILLER_WORDS.has(word))) return false;
+  }
+  return true;
+}
+
+function removeFillerExportClozes(text) {
+  return String(text || "").replace(/\{\{c\d+::([\s\S]*?)\}\}/gi, (full, inner) => {
+    const answer = String(inner || "").split("::")[0];
+    const words = answer.replace(/<[^>]*>/g, " ").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    return !words.length || words.some((word) => EXPORT_CLOZE_FILLER_WORDS.has(word)) ? answer : full;
+  });
 }
 
 function enforceExportClozeWordLimit(text, maxWords = 2) {
@@ -1097,7 +1143,7 @@ ${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${Stri
 FIELDS:
 ${rawText}`;
     let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
-    if (!exportClozesWithinWordLimit(draft, 2)) {
+    if (!exportClozesWithinWordLimit(draft, 2) || !exportClozesAreMeaningful(draft)) {
       draft = await callOpenAI({
         apiKey,
         model,
@@ -1107,7 +1153,7 @@ ${rawText}`;
 REPAIR THIS DRAFT:
 ${draft}
 
-Return the same fields separated by ${d}. Every individual cloze answer MUST contain only one or two words. Move all remaining words outside each cloze wrapper. Return only the repaired field text.`,
+First rewrite each complete card into concise high-yield rapid-review form, then place clozes. Return the same fields separated by ${d}. Every individual cloze answer MUST contain only one or two meaningful medical words. Move all remaining words outside each wrapper. Never cloze filler such as the, a, an, due, if, in, of, to, or patchy. Use higher/lower only when direction is the tested medical fact. Return only the repaired field text.`,
       });
     }
     const outputFields = String(draft || "").split(d);
@@ -1126,10 +1172,11 @@ Return the same fields separated by ${d}. Every individual cloze answer MUST con
       }
 
       const lengthSafeText = enforceExportClozeWordLimit(edited, 2);
-      if (!warning && lengthSafeText !== edited) {
-        warning = "An oversized proposed cloze was shortened to the required two-word maximum.";
+      const validatedText = removeFillerExportClozes(lengthSafeText);
+      if (!warning && validatedText !== edited) {
+        warning = "An invalid proposed cloze was shortened or removed by final validation.";
       }
-      return { original, text: renumberExportClozes(lengthSafeText).text, warning };
+      return { original, text: renumberExportClozes(validatedText).text, warning };
     });
 
     return res.json({ cards });
