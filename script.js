@@ -24,6 +24,32 @@ function sortExportCardsForAnki(cards) {
   });
 }
 
+function cleanExportTextForDisplay(text) {
+  const decoder = document.createElement("textarea");
+  decoder.innerHTML = String(text || "");
+  let cleaned = decoder.value;
+  decoder.innerHTML = cleaned;
+  cleaned = decoder.value;
+
+  // Some Anki fields contain serialized/escaped markup. Decode it for the
+  // preview only; the original HTML remains untouched in the stored note.
+  cleaned = cleaned
+    .replace(/\\+(?=<\/?[a-z][^>]*>)/gi, "")
+    .replace(/<img\b[^>]*>/gi, "")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(?:div|p|li|ul|ol|h[1-6]|table|tr)>/gi, "\n")
+    .replace(/<(?:div|p|li|ul|ol|h[1-6]|table|tr)\b[^>]*>/gi, "\n")
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "");
+
+  decoder.innerHTML = cleaned;
+  return decoder.value
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ============================
   // CLOZE REFINER TAB WIRING
@@ -499,22 +525,20 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderExportPreview(cards) {
     exportPreview.replaceChildren();
     const orderedCards = sortExportCardsForAnki(cards);
-    orderedCards.slice(0, 100).forEach((card, index) => {
+    orderedCards.slice(0, 100).forEach((card) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
-      const header = document.createElement("div");
-      header.className = "flex items-center justify-between gap-3 mb-1.5";
-      const label = document.createElement("div");
-      label.className = "text-xs font-semibold text-primary-600 dark:text-primary-400";
-      label.textContent = `Note ${index + 1}`;
+      const displayText = cleanExportTextForDisplay(card.text);
+      const actions = document.createElement("div");
+      actions.className = "flex justify-end mt-2";
       const copyButton = document.createElement("button");
       copyButton.type = "button";
       copyButton.className = "inline-flex items-center gap-1 rounded-md bg-slate-200/80 dark:bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition";
       copyButton.textContent = "Copy";
-      copyButton.setAttribute("aria-label", `Copy Note ${index + 1}`);
+      copyButton.setAttribute("aria-label", "Copy edited Anki card");
       copyButton.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(card.text);
+          await navigator.clipboard.writeText(displayText);
           copyButton.textContent = "Copied";
           window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1500);
         } catch (_error) {
@@ -524,10 +548,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 leading-relaxed";
-      const originalNumbers = [...String(card.originalText || "").matchAll(/\{\{c(\d+)::/gi)].map((match) => `c${match[1]}`);
-      content.textContent = `ORIGINAL CLOZE STRUCTURE:\n${[...new Set(originalNumbers)].join(", ") || "No clozes"}\n\nEDITED:\n${card.text}`;
-      header.append(label, copyButton);
-      item.append(header, content);
+      content.textContent = displayText;
+      actions.append(copyButton);
+      item.append(content, actions);
       exportPreview.appendChild(item);
     });
     if (orderedCards.length > 100) {
