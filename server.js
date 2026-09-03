@@ -426,7 +426,10 @@ app.post("/api/exports/apkg/rebuild", async (req, res) => {
       if (!indexes.length || indexes.length !== editedFields.length) throw new Error(`Invalid field edit for note ${noteId}.`);
 
       const originalEditableText = indexes.map((fieldIndex) => originalFields[fieldIndex]).join("\n===ANKI_FIELD===\n");
-      const editedText = editedFields.join("\n===ANKI_FIELD===\n");
+      const editedText = enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 2);
+      if (!exportClozesWithinWordLimit(editedText, 2)) {
+        throw new Error(`Note ${noteId} contains an invalid cloze longer than two words.`);
+      }
       if (JSON.stringify(exportMediaReferences(editedText)) !== JSON.stringify(exportMediaReferences(originalEditableText))) {
         throw new Error(`Note ${noteId} changed an image or sound reference and was not written.`);
       }
@@ -621,7 +624,9 @@ These rules are the complete source of truth for Export-tab cloze editing. Do no
 CORE PRINCIPLE
 - Actively rewrite existing cloze boundaries. Existing spans are source material, not boundaries that must be preserved.
 - Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
-- Prefer 1–2 words or even a word fragment: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
+- HARD RULE: every individual cloze answer must contain only 1–2 whitespace-separated words. This is mandatory, not a preference.
+- A named entity or molecular alteration may remain intact only when it is an inseparable one- or two-word name. Otherwise hide only its distinguishing portion.
+- Prefer a word fragment whenever it tests the association faster: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
 - Remove giant clozes, leave explanations visible, and rewrite surrounding wording when needed to make a concise, accurate, fast-review card.
 
 WHAT TO CLOZE
@@ -633,6 +638,7 @@ WHAT TO CLOZE
 
 BOUNDARIES AND NUMBERING
 - You may remove, shrink, move, merge, or split old clozes.
+- Delete low-yield old clozes. Old placement and the old number of groups are not authoritative.
 - Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
 - Usually use 1–4 logical groups. About three is a useful target for tumor cards, but retain c4 when a fourth distinct fact is truly useful.
 - For tumors, a useful pattern is c1 entity, c2 key site/morphology, and c3 defining IHC/genetics.
@@ -653,7 +659,8 @@ ACCURACY AND STORAGE
 - Preserve useful HTML structure where possible. The website creates a separate clean-text preview.
 
 FINAL CHECK
-- Shorten every cloze longer than about 2–4 words unless the full phrase is itself the high-yield entity.
+- Inspect every {{cN::answer}} and do not return the card while any answer contains more than two words.
+- For every oversized cloze, remove the old wrapper, select its most important one- or two-word answer, wrap only that answer, and leave all remaining text visible.
 - Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
 - Consider a partial-word cloze whenever it tests the same association faster.
 - Merge redundant groups and make numbering consecutive from c1.
@@ -703,6 +710,38 @@ function exportSortField(text) {
     .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function exportClozesWithinWordLimit(text, maxWords = 2) {
+  for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
+    const answer = String(match[1] || "").split("::")[0].trim();
+    const visibleAnswer = answer.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
+    if (!visibleAnswer || visibleAnswer.split(/\s+/).filter(Boolean).length > maxWords) return false;
+  }
+  return true;
+}
+
+function enforceExportClozeWordLimit(text, maxWords = 2) {
+  return String(text || "").replace(/\{\{c(\d+)::([\s\S]*?)\}\}/gi, (full, number, inner) => {
+    const parts = String(inner).split("::");
+    const answer = String(parts.shift() || "").trim();
+    const hint = parts.length ? parts.join("::").trim() : "";
+    const visibleWords = answer.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim().split(/\s+/).filter(Boolean);
+    if (visibleWords.length <= maxWords) return full;
+
+    // This is a last-resort safety net after the model repair pass. Select the
+    // first visible word without moving or deleting any HTML around it.
+    const candidates = Array.from(answer.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’+/-]*/gu));
+    const word = candidates.find((candidate) => {
+      const before = answer.slice(0, candidate.index);
+      return before.lastIndexOf("<") <= before.lastIndexOf(">");
+    });
+    if (!word) return answer;
+    const anchor = word[0];
+    const anchorIndex = word.index;
+    const wrapper = `{{c${number}::${anchor}${hint ? `::${hint}` : ""}}}`;
+    return `${answer.slice(0, anchorIndex)}${wrapper}${answer.slice(anchorIndex + anchor.length)}`;
+  });
 }
 
 function pickAnchorWords(content, maxWords = 3) {
@@ -1057,7 +1096,20 @@ DELIMITER: ${d}
 ${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${String(extraRules).trim()}\n` : ""}
 FIELDS:
 ${rawText}`;
-    const draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
+    let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
+    if (!exportClozesWithinWordLimit(draft, 2)) {
+      draft = await callOpenAI({
+        apiKey,
+        model,
+        temperature: 0.1,
+        input: `${EXPORT_RULES}
+
+REPAIR THIS DRAFT:
+${draft}
+
+Return the same fields separated by ${d}. Every individual cloze answer MUST contain only one or two words. Move all remaining words outside each cloze wrapper. Return only the repaired field text.`,
+      });
+    }
     const outputFields = String(draft || "").split(d);
 
     const cards = sourceFields.map((original, index) => {
@@ -1073,7 +1125,11 @@ ${rawText}`;
         warning = "The proposed edit changed a media reference, so only numbering was updated.";
       }
 
-      return { original, text: renumberExportClozes(edited).text, warning };
+      const lengthSafeText = enforceExportClozeWordLimit(edited, 2);
+      if (!warning && lengthSafeText !== edited) {
+        warning = "An oversized proposed cloze was shortened to the required two-word maximum.";
+      }
+      return { original, text: renumberExportClozes(lengthSafeText).text, warning };
     });
 
     return res.json({ cards });
