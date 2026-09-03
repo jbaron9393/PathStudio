@@ -427,9 +427,9 @@ app.post("/api/exports/apkg/rebuild", async (req, res) => {
 
       const originalEditableText = indexes.map((fieldIndex) => originalFields[fieldIndex]).join("\n===ANKI_FIELD===\n");
       const editedText = removeFillerExportClozes(
-        enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 2),
+        enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 3),
       );
-      if (!exportClozesWithinWordLimit(editedText, 2) || !exportClozesAreMeaningful(editedText)) {
+      if (!exportClozesWithinWordLimit(editedText, 3) || !exportClozesAreMeaningful(editedText)) {
         throw new Error(`Note ${noteId} contains an invalid cloze answer.`);
       }
       if (JSON.stringify(exportMediaReferences(editedText)) !== JSON.stringify(exportMediaReferences(originalEditableText))) {
@@ -640,33 +640,38 @@ STEP 2 — ADD MINIMAL CLOZES
 - Only after rewriting, choose the smallest meaningful high-yield facts to recall.
 - Existing spans and numbers are only source material. Do not preserve their boundaries, count, or placement.
 - Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
-- HARD RULE: every individual cloze answer must contain only 1–2 whitespace-separated words. This is mandatory, not a preference.
-- A named entity or molecular alteration may remain intact only when it is an inseparable one- or two-word name. Otherwise hide only its distinguishing portion.
+- Clozes should normally contain only 1–2 words.
+- A short inseparable disease/entity name, fusion, molecular alteration, or phrase may use a third word when splitting it would make the answer awkward or less meaningful (for example {{c2::Deep soft tissue}}).
 - Prefer a word fragment whenever it tests the association faster: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
 - Remove giant clozes, leave explanations visible, and rewrite surrounding wording when needed to make a concise, accurate, fast-review card.
 
 WHAT TO CLOZE
-1. Prioritize diagnosis/entity, signature site, signature morphology, distinctive IHC, defining fusion/genetic alteration, key directional lab change, and genuinely high-yield age/sex associations.
-2. Usually leave explanatory physiology, mechanisms that reveal the answer, long lists, generic histology/markers, prognosis, and redundant details visible.
-3. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
-4. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
-5. Related facts may share one number. Do not create a separate cloze card for every fact.
-6. A short cloze is not automatically valid: its answer must demonstrate useful medical knowledge when recalled.
+1. Disease, diagnosis, tumor, syndrome, and molecular entity names may be clozed (for example {{c1::Fabry}} disease, {{c1::BCOR-CCNB3}} tumor, or {{c1::Desmoplastic}} small round cell tumor).
+2. Clozing the entity does not replace its distinguishing features; still select the best one or two morphology, site, IHC, enzyme, or molecular facts.
+3. After rewriting, internally rank candidates in this order: entity/diagnosis; defining morphology; characteristic site; distinctive IHC; defining gene/fusion/enzyme; important physiologic result; high-yield age/sex association; generic supporting detail. Do not output this ranking.
+4. Cloze only the highest-value candidates from that ranking.
+5. Usually leave explanatory physiology, mechanisms that reveal the answer, long lists, generic histology/markers, prognosis, and redundant details visible.
+6. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
+7. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
+8. Related facts may share one number. Do not create a separate cloze card for every fact.
+9. A short cloze is not automatically valid: its answer must demonstrate useful medical knowledge when recalled.
 
 NEVER CLOZE FILLER
 - Never cloze articles, conjunctions, prepositions, section labels, generic verbs/adjectives, or grammar-predictable words.
 - Specifically do not cloze: the, a, an, due, if, in, on, of, to, and, or, patchy, higher, or lower. Direction words may be clozed only when the direction itself is the medical fact being tested.
 - Bad anchors include {{c1::The}}, {{c1::In}}, {{c1::Due}}, {{c1::IF}}, {{c1::Patchy}} CD99+, and {{c1::Higher}} temperature.
+- Avoid low-value standalone clozes such as deep, poor, renal, teenage, nest, increased, or decreased unless that exact word/direction is the important tested result.
 - Before accepting an answer, ask whether recalling the missing text proves useful medical knowledge. If not, remove or move that cloze.
 
 BOUNDARIES AND NUMBERING
 - You may remove, shrink, move, merge, or split old clozes.
 - Delete low-yield old clozes. Old placement and the old number of groups are not authoritative.
 - Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
-- Usually use 1–4 logical groups. About three is a useful target for tumor cards, but retain c4 when a fourth distinct fact is truly useful.
+- Usually use only 1–3 logical groups; retain c4 only when a fourth distinct high-yield fact is genuinely useful.
 - For tumors, a useful pattern is c1 entity, c2 key site/morphology, and c3 defining IHC/genetics.
 
 QUALITY EXAMPLES
+- {{c1::Fabry}} disease<br>EM: {{c2::Zebra}} pattern of lipid inclusions<br>Due to GL3 accumulation from α-{{c3::galactosidase A}} deficiency.
 - {{c1::Hypocalcemia}} becomes {{c1::Hypo}}calcemia.
 - {{c2::Hyperphosphatemia}} becomes {{c2::hyper}}phosphatemia.
 - {{c3::Renal osteodystrophy}} becomes renal {{c3::osteo}}dystrophy.
@@ -675,6 +680,7 @@ QUALITY EXAMPLES
 - DSRCT should emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, rather than hiding demographics, histology, IHC, and genetics in one giant cloze.
 - BCOR-CCNB3 should emphasize {{c1::BCOR-CCNB3}}, site {{c2::Bone}}, and {{c3::BCOR / CCNB3}} IHC.
 - CIC-DUX4 should emphasize {{c1::CIC-DUX4}}, site {{c2::Soft tissue}}, and {{c3::WT1}} IHC.
+- Keep mechanisms visible and cloze the result: Fever → O2 dissociates from Hb → ABG {{c1::under}}estimates pO2; hypothermia → O2 binds Hb → ABG {{c1::over}}estimates pO2.
 
 ACCURACY AND STORAGE
 - Do not invent or silently change medical facts. Correct only obvious typos.
@@ -683,13 +689,14 @@ ACCURACY AND STORAGE
 
 FINAL CHECK
 - Confirm that you actually rewrote/summarized the source and removed redundant or low-yield prose before adding clozes.
-- Inspect every {{cN::answer}} and do not return the card while any answer contains more than two words.
-- For every oversized cloze, remove the old wrapper, select its most important one- or two-word answer, wrap only that answer, and leave all remaining text visible.
+- Inspect every {{cN::answer}}; keep it to 1–2 words unless a short inseparable name or phrase genuinely requires a third word.
+- For every oversized cloze, remove the old wrapper, select its most important short answer, wrap only that answer, and leave all remaining text visible.
 - Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
 - Consider a partial-word cloze whenever it tests the same association faster.
 - Merge redundant groups and make numbering consecutive from c1.
 - Simplify again if the result would not be answerable in 2–5 seconds.
 - Confirm every cloze tests meaningful medical knowledge and no cloze contains filler or a grammar-only cue.
+- If the diagnosis is clozed, confirm that the most distinguishing features were also considered.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
@@ -737,7 +744,7 @@ function exportSortField(text) {
     .trim();
 }
 
-function exportClozesWithinWordLimit(text, maxWords = 2) {
+function exportClozesWithinWordLimit(text, maxWords = 3) {
   for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
     const answer = String(match[1] || "").split("::")[0].trim();
     const visibleAnswer = answer.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
@@ -747,14 +754,14 @@ function exportClozesWithinWordLimit(text, maxWords = 2) {
 }
 
 const EXPORT_CLOZE_FILLER_WORDS = new Set([
-  "a", "an", "and", "due", "if", "in", "of", "on", "or", "patchy", "the", "to",
+  "a", "an", "and", "deep", "due", "if", "in", "nest", "of", "on", "or", "patchy", "poor", "renal", "teenage", "the", "to",
 ]);
 
 function exportClozesAreMeaningful(text) {
   for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
     const answer = String(match[1] || "").split("::")[0].replace(/<[^>]*>/g, " ").trim();
     const words = answer.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-    if (!words.length || words.some((word) => EXPORT_CLOZE_FILLER_WORDS.has(word))) return false;
+    if (!words.length || (words.length === 1 && EXPORT_CLOZE_FILLER_WORDS.has(words[0]))) return false;
   }
   return true;
 }
@@ -763,11 +770,11 @@ function removeFillerExportClozes(text) {
   return String(text || "").replace(/\{\{c\d+::([\s\S]*?)\}\}/gi, (full, inner) => {
     const answer = String(inner || "").split("::")[0];
     const words = answer.replace(/<[^>]*>/g, " ").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-    return !words.length || words.some((word) => EXPORT_CLOZE_FILLER_WORDS.has(word)) ? answer : full;
+    return !words.length || (words.length === 1 && EXPORT_CLOZE_FILLER_WORDS.has(words[0])) ? answer : full;
   });
 }
 
-function enforceExportClozeWordLimit(text, maxWords = 2) {
+function enforceExportClozeWordLimit(text, maxWords = 3) {
   return String(text || "").replace(/\{\{c(\d+)::([\s\S]*?)\}\}/gi, (full, number, inner) => {
     const parts = String(inner).split("::");
     const answer = String(parts.shift() || "").trim();
@@ -1143,7 +1150,7 @@ ${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${Stri
 FIELDS:
 ${rawText}`;
     let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
-    if (!exportClozesWithinWordLimit(draft, 2) || !exportClozesAreMeaningful(draft)) {
+    if (!exportClozesWithinWordLimit(draft, 3) || !exportClozesAreMeaningful(draft)) {
       draft = await callOpenAI({
         apiKey,
         model,
@@ -1153,7 +1160,7 @@ ${rawText}`;
 REPAIR THIS DRAFT:
 ${draft}
 
-First rewrite each complete card into concise high-yield rapid-review form, then place clozes. Return the same fields separated by ${d}. Every individual cloze answer MUST contain only one or two meaningful medical words. Move all remaining words outside each wrapper. Never cloze filler such as the, a, an, due, if, in, of, to, or patchy. Use higher/lower only when direction is the tested medical fact. Return only the repaired field text.`,
+First rewrite each complete card into concise high-yield rapid-review form, rank the candidate facts, then cloze only the highest-value facts. Return the same fields separated by ${d}. Clozes should normally contain one or two meaningful medical words; a short inseparable entity or phrase may contain a third word. Move all remaining words outside each wrapper. Never use a standalone filler cloze such as the, a, an, due, if, in, of, to, deep, poor, renal, teenage, nest, or patchy. Use direction words only when direction is the tested medical fact. Return only the repaired field text.`,
       });
     }
     const outputFields = String(draft || "").split(d);
@@ -1171,7 +1178,7 @@ First rewrite each complete card into concise high-yield rapid-review form, then
         warning = "The proposed edit changed a media reference, so only numbering was updated.";
       }
 
-      const lengthSafeText = enforceExportClozeWordLimit(edited, 2);
+      const lengthSafeText = enforceExportClozeWordLimit(edited, 3);
       const validatedText = removeFillerExportClozes(lengthSafeText);
       if (!warning && validatedText !== edited) {
         warning = "An invalid proposed cloze was shortened or removed by final validation.";
