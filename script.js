@@ -24,21 +24,28 @@ function sortExportCardsForAnki(cards) {
   });
 }
 
-function stripExportPresentationFormatting(text) {
-  return String(text || "")
-    // Preserve Anki's {{c1::...}} cloze syntax, but turn HTML structure into
-    // plain text so previews, copies, and downloads contain no markup code.
-    .replace(/<\s*\{\{c\d+::(?:div|font|span|b|strong|i|em|u)\}\}[^>]*>/gi, "")
+function cleanExportTextForDisplay(text) {
+  const decoder = document.createElement("textarea");
+  decoder.innerHTML = String(text || "");
+  let cleaned = decoder.value;
+  decoder.innerHTML = cleaned;
+  cleaned = decoder.value;
+
+  // Some Anki fields contain serialized/escaped markup. Decode it for the
+  // preview only; the original HTML remains untouched in the stored note.
+  cleaned = cleaned
+    .replace(/\\+(?=<\/?[a-z][^>]*>)/gi, "")
+    .replace(/<img\b[^>]*>/gi, "")
     .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/(?:div|p|li|ul|ol|h[1-6])\s*>/gi, "\n")
-    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
-    .replace(/(^|[\s(])([*_])(?=\S)([^\n]*?\S)\2(?=$|[\s).,;:!?])/g, "$1$3")
+    .replace(/<\/(?:div|p|li|ul|ol|h[1-6]|table|tr)>/gi, "\n")
+    .replace(/<(?:div|p|li|ul|ol|h[1-6]|table|tr)\b[^>]*>/gi, "\n")
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "");
+
+  decoder.innerHTML = cleaned;
+  return decoder.value
+    .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -474,11 +481,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const exportCompleted = document.getElementById("exportCompleted");
   const exportFailed = document.getElementById("exportFailed");
   const exportPreview = document.getElementById("exportPreview");
+  const downloadExportApkg = document.getElementById("downloadExportApkg");
   const downloadExportTxt = document.getElementById("downloadExportTxt");
   const downloadExportDoc = document.getElementById("downloadExportDoc");
 
   let selectedExportFile = null;
   let refinedExportCards = [];
+  let exportToken = "";
   let exportCancelled = false;
   const ANKI_SEARCH_CUE_STORAGE_KEY = "pathStudio.ankiSearchCue";
 
@@ -507,6 +516,8 @@ document.addEventListener("DOMContentLoaded", () => {
     exportStatus.textContent = "Deck ready to extract.";
     processExport.disabled = false;
     refinedExportCards = [];
+    exportToken = "";
+    downloadExportApkg.disabled = true;
     downloadExportTxt.disabled = true;
     downloadExportDoc.disabled = true;
   }
@@ -514,22 +525,28 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderExportPreview(cards) {
     exportPreview.replaceChildren();
     const orderedCards = sortExportCardsForAnki(cards);
-    orderedCards.slice(0, 100).forEach((card, index) => {
+    orderedCards.slice(0, 100).forEach((card) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
-      const header = document.createElement("div");
-      header.className = "flex items-center justify-between gap-3 mb-1.5";
-      const label = document.createElement("div");
-      label.className = "text-xs font-semibold text-primary-600 dark:text-primary-400";
-      label.textContent = `Note ${index + 1}`;
+      if (card.failed) {
+        item.classList.add("border-red-300", "dark:border-red-800");
+        const failureLabel = document.createElement("div");
+        failureLabel.className = "mb-2 text-xs font-semibold text-red-600 dark:text-red-400";
+        failureLabel.textContent = "Refinement failed — original note shown";
+        if (card.error) failureLabel.title = card.error;
+        item.appendChild(failureLabel);
+      }
+      const displayText = cleanExportTextForDisplay(card.text);
+      const actions = document.createElement("div");
+      actions.className = "flex justify-end mt-2";
       const copyButton = document.createElement("button");
       copyButton.type = "button";
       copyButton.className = "inline-flex items-center gap-1 rounded-md bg-slate-200/80 dark:bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition";
       copyButton.textContent = "Copy";
-      copyButton.setAttribute("aria-label", `Copy Note ${index + 1}`);
+      copyButton.setAttribute("aria-label", "Copy edited Anki card");
       copyButton.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(card.text);
+          await navigator.clipboard.writeText(displayText);
           copyButton.textContent = "Copied";
           window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1500);
         } catch (_error) {
@@ -539,9 +556,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const content = document.createElement("div");
       content.className = "whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 leading-relaxed";
-      content.textContent = card.text;
-      header.append(label, copyButton);
-      item.append(header, content);
+      content.textContent = displayText;
+      actions.append(copyButton);
+      item.append(content, actions);
       exportPreview.appendChild(item);
     });
     if (orderedCards.length > 100) {
@@ -586,6 +603,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelExport.classList.remove("hidden");
     downloadExportTxt.disabled = true;
     downloadExportDoc.disabled = true;
+    downloadExportApkg.disabled = true;
     exportDetected.textContent = "0";
     exportCompleted.textContent = "0";
     exportFailed.textContent = "0";
@@ -605,6 +623,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const responseText = await extractionResponse.text();
       if (!extractionResponse.ok) throw new Error(responseText || "Could not extract this deck.");
       const extracted = JSON.parse(responseText);
+      exportToken = String(extracted.exportToken || "");
       const notes = Array.isArray(extracted.notes) ? extracted.notes : [];
       if (!notes.length) throw new Error("No editable note text was found in this deck.");
 
@@ -614,14 +633,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       for (let start = 0; start < notes.length; start += batchSize) {
         if (exportCancelled) break;
-        const batch = notes.slice(start, start + batchSize).map((note) => ({
-          ...note,
-          text: stripExportPresentationFormatting(note.text),
-        }));
+        const batch = notes.slice(start, start + batchSize);
         exportStatus.textContent = `Refining notes ${start + 1}–${Math.min(start + batch.length, notes.length)} of ${notes.length}…`;
         try {
           const result = await apiPostJson(
-            "/api/refine",
+            "/api/export-refine",
             {
               text: batch.map((note) => note.text).join("\n\n===CARD===\n\n"),
               model: exportModel.value,
@@ -632,14 +648,18 @@ document.addEventListener("DOMContentLoaded", () => {
             },
             { timeoutMs: 120000 },
           );
-          const outputs = splitCards(result.text ?? result.output ?? "");
+          const outputs = Array.isArray(result.cards) ? result.cards : [];
           batch.forEach((note, index) => {
-            const output = outputs[index];
-            if (!output) failures += 1;
+            const outputCard = outputs[index];
+            const output = outputCard?.text;
+            const failed = !output || outputCard?.failed === true;
+            if (failed) failures += 1;
             refinedExportCards.push({
               ...note,
-              text: stripExportPresentationFormatting(output || note.text),
-              failed: !output,
+              originalText: note.text,
+              text: output || note.text,
+              error: outputCard?.error || "",
+              failed,
             });
           });
         } catch (error) {
@@ -647,7 +667,8 @@ document.addEventListener("DOMContentLoaded", () => {
           failures += batch.length;
           refinedExportCards.push(...batch.map((note) => ({
             ...note,
-            text: stripExportPresentationFormatting(note.text),
+            originalText: note.text,
+            text: note.text,
             failed: true,
           })));
         }
@@ -668,6 +689,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const hasResults = refinedExportCards.length > 0;
       downloadExportTxt.disabled = !hasResults;
       downloadExportDoc.disabled = !hasResults;
+      downloadExportApkg.disabled = !hasResults || !exportToken || exportCancelled || failures > 0;
     } catch (error) {
       console.error(error);
       exportStatus.textContent = `Error: ${error?.message || error}`;
@@ -714,6 +736,39 @@ document.addEventListener("DOMContentLoaded", () => {
     exportStatus.textContent = "Stopping after the current batch…";
   });
   downloadExportTxt?.addEventListener("click", () => downloadExport(exportAsText(), "text/plain;charset=utf-8", "txt"));
+  downloadExportApkg?.addEventListener("click", async () => {
+    if (!exportToken || !refinedExportCards.length) return;
+    downloadExportApkg.disabled = true;
+    exportStatus.textContent = "Building edited Anki package…";
+    try {
+      const response = await fetch("/api/exports/apkg/rebuild", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exportToken,
+          edits: refinedExportCards.map(({ noteId, editableFieldIndexes, text }) => ({ noteId, editableFieldIndexes, text })),
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const fileName = disposition.match(/filename="([^"]+)"/)?.[1] || "edited_deck.apkg";
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      exportToken = "";
+      exportStatus.textContent = "Edited Anki package downloaded.";
+    } catch (error) {
+      exportStatus.textContent = `Package error: ${error?.message || error}`;
+      downloadExportApkg.disabled = false;
+    }
+  });
   downloadExportDoc?.addEventListener("click", () => {
     const body = sortExportCardsForAnki(refinedExportCards).map((card, index) =>
       `<h2>Note ${index + 1}</h2><p>${escapeDocumentText(card.text).replace(/\n/g, "<br>")}</p>`,
