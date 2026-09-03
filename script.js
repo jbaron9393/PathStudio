@@ -528,14 +528,6 @@ document.addEventListener("DOMContentLoaded", () => {
     orderedCards.slice(0, 100).forEach((card) => {
       const item = document.createElement("article");
       item.className = "rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3";
-      if (card.failed) {
-        item.classList.add("border-red-300", "dark:border-red-800");
-        const failureLabel = document.createElement("div");
-        failureLabel.className = "mb-2 text-xs font-semibold text-red-600 dark:text-red-400";
-        failureLabel.textContent = "Refinement failed — original note shown";
-        if (card.error) failureLabel.title = card.error;
-        item.appendChild(failureLabel);
-      }
       const displayText = cleanExportTextForDisplay(card.text);
       const actions = document.createElement("div");
       actions.className = "flex justify-end mt-2";
@@ -650,16 +642,14 @@ document.addEventListener("DOMContentLoaded", () => {
           );
           const outputs = Array.isArray(result.cards) ? result.cards : [];
           batch.forEach((note, index) => {
-            const outputCard = outputs[index];
-            const output = outputCard?.text;
-            const failed = !output || outputCard?.failed === true;
-            if (failed) failures += 1;
+            const output = outputs[index]?.text;
+            if (!output) failures += 1;
             refinedExportCards.push({
               ...note,
               originalText: note.text,
               text: output || note.text,
-              error: outputCard?.error || "",
-              failed,
+              warning: outputs[index]?.warning || "",
+              failed: !output,
             });
           });
         } catch (error) {
@@ -689,7 +679,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const hasResults = refinedExportCards.length > 0;
       downloadExportTxt.disabled = !hasResults;
       downloadExportDoc.disabled = !hasResults;
-      downloadExportApkg.disabled = !hasResults || !exportToken || exportCancelled || failures > 0;
+      downloadExportApkg.disabled = !hasResults || !exportToken || exportCancelled;
     } catch (error) {
       console.error(error);
       exportStatus.textContent = `Error: ${error?.message || error}`;

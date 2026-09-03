@@ -735,82 +735,6 @@ function exportMediaReferences(text) {
     .sort();
 }
 
-function decodeExportHtmlEntities(text) {
-  const named = { amp: "&", apos: "'", gt: ">", lt: "<", nbsp: " ", quot: '"' };
-  let value = String(text || "");
-  for (let pass = 0; pass < 2; pass += 1) {
-    value = value.replace(/&(#(?:x[0-9a-f]+|\d+)|amp|apos|gt|lt|nbsp|quot);/gi, (_match, entity) => {
-      if (entity[0] !== "#") return named[entity.toLowerCase()] ?? _match;
-      const hexadecimal = entity[1]?.toLowerCase() === "x";
-      const codePoint = Number.parseInt(entity.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
-      return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
-        ? String.fromCodePoint(codePoint)
-        : _match;
-    });
-  }
-  return value;
-}
-
-function normalizeExportFieldForAI(field, media, fieldIndex) {
-  let value = decodeExportHtmlEntities(field).replace(/\\+(?=<\/?[a-z][^>]*>)/gi, "");
-  value = value.replace(/<img\b[^>]*>|\[sound:[^\]]+\]/gi, (reference) => {
-    const placeholder = `[ANKI_MEDIA_${fieldIndex}_${media.length + 1}]`;
-    media.push({ placeholder, reference });
-    return `\n${placeholder}\n`;
-  });
-  return value
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/(?:div|p|li|ul|ol|h[1-6]|table|tr)>/gi, "\n")
-    .replace(/<(?:div|p|li|ul|ol|h[1-6]|table|tr)\b[^>]*>/gi, "\n")
-    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function normalizeExportNoteForAI(noteText) {
-  const media = [];
-  const fields = String(noteText || "").split("\n===ANKI_FIELD===\n");
-  return {
-    fieldCount: fields.length,
-    media,
-    text: fields.map((field, index) => normalizeExportFieldForAI(field, media, index)).join("\n===ANKI_FIELD===\n"),
-  };
-}
-
-function validateNormalizedExportOutput(text, normalizedNote) {
-  if (typeof text !== "string" || !text.trim()) return "The model returned an empty note.";
-  if (text.split("\n===ANKI_FIELD===\n").length !== normalizedNote.fieldCount) {
-    return "The model changed the number of Anki fields.";
-  }
-  for (const { placeholder } of normalizedNote.media) {
-    const occurrences = text.split(placeholder).length - 1;
-    if (occurrences !== 1) return `The model did not preserve ${placeholder}.`;
-  }
-  if (!clozeNumbersInOrder(text).length) return "The model returned no cloze groups.";
-  if (!exportClozesWithinWordLimit(text, 3)) return "The model returned an oversized cloze.";
-  if (!exportClozesAreMeaningful(text)) return "The model returned a low-value filler cloze.";
-  return "";
-}
-
-function restoreExportNoteFromAI(text, normalizedNote) {
-  const restoredFields = String(text || "").split("\n===ANKI_FIELD===\n").map((field) => field
-    .replace(/^```[^\n]*\n?|```$/g, "")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/(?:div|p|li|ul|ol|h[1-6])>/gi, "\n")
-    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*?)?\s*\/?>/gi, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .replace(/\n/g, "<br>"));
-  let restored = restoredFields.join("\n===ANKI_FIELD===\n");
-  for (const { placeholder, reference } of normalizedNote.media) {
-    restored = restored.replace(placeholder, reference);
-  }
-  return restored;
-}
-
 function exportSortField(text) {
   return exportVisibleText(text)
     .replace(/<br\s*\/?>/gi, " ")
@@ -1218,60 +1142,48 @@ app.post("/api/export-refine", async (req, res) => {
     const d = String(delimiter || "===CARD===");
     const sourceFields = rawText.split(d);
     if (!rawText.trim()) return res.status(400).send("Missing 'text'.");
-    const normalizedNotes = sourceFields.map(normalizeExportNoteForAI);
-    const normalizedText = normalizedNotes.map((note) => note.text).join(`\n${d}\n`);
 
     const prompt = `${EXPORT_RULES}
 
 DELIMITER: ${d}
 ${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${String(extraRules).trim()}\n` : ""}
-The fields below have already been normalized into readable semantic text. Media is represented by unique [ANKI_MEDIA_...] placeholders. Preserve every placeholder exactly once and preserve every ===ANKI_FIELD=== boundary. Do not emit raw HTML.
 FIELDS:
-${normalizedText}`;
+${rawText}`;
     let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
-    let outputFields = String(draft || "").split(d).map((card) => card.trim());
-    let validationErrors = normalizedNotes.map((note, index) => validateNormalizedExportOutput(outputFields[index], note));
-    if (outputFields.length !== normalizedNotes.length || validationErrors.some(Boolean)) {
+    if (!exportClozesWithinWordLimit(draft, 3) || !exportClozesAreMeaningful(draft)) {
       draft = await callOpenAI({
         apiKey,
         model,
         temperature: 0.1,
         input: `${EXPORT_RULES}
 
-NORMALIZED SOURCE NOTES:
-${normalizedText}
-
 REPAIR THIS DRAFT:
 ${draft}
 
-VALIDATION ERRORS:
-${validationErrors.filter(Boolean).join("\n") || "The number of returned notes did not match."}
-
-First rewrite each complete normalized card into concise high-yield rapid-review form, rank the candidate facts, then cloze only the highest-value facts. Return exactly ${normalizedNotes.length} notes separated by ${d}. Preserve every [ANKI_MEDIA_...] placeholder exactly once and every ===ANKI_FIELD=== boundary. Clozes should normally contain one or two meaningful medical words; a short inseparable entity or phrase may contain a third word. Never use a standalone filler cloze. Return only the repaired note text.`,
+First rewrite each complete card into concise high-yield rapid-review form, rank the candidate facts, then cloze only the highest-value facts. Return the same fields separated by ${d}. Clozes should normally contain one or two meaningful medical words; a short inseparable entity or phrase may contain a third word. Move all remaining words outside each wrapper. Never use a standalone filler cloze such as the, a, an, due, if, in, of, to, deep, poor, renal, teenage, nest, or patchy. Use direction words only when direction is the tested medical fact. Return only the repaired field text.`,
       });
-      outputFields = String(draft || "").split(d).map((card) => card.trim());
-      validationErrors = normalizedNotes.map((note, index) => validateNormalizedExportOutput(outputFields[index], note));
     }
+    const outputFields = String(draft || "").split(d);
 
     const cards = sourceFields.map((original, index) => {
       const candidate = outputFields[index];
-      const validationError = validationErrors[index] || (outputFields.length !== normalizedNotes.length
-        ? "The model returned the wrong number of notes."
-        : "");
-      if (validationError) {
-        console.warn(`Export refinement failed for batch note ${index + 1}: ${validationError}`);
-        return { original, text: original, failed: true, error: validationError };
+      let warning = "";
+      let edited = candidate;
+
+      if (candidate == null || !clozeNumbersInOrder(candidate).length) {
+        edited = original;
+        warning = "No valid edited cloze text was returned, so only numbering was updated.";
+      } else if (JSON.stringify(exportMediaReferences(candidate)) !== JSON.stringify(exportMediaReferences(original))) {
+        edited = original;
+        warning = "The proposed edit changed a media reference, so only numbering was updated.";
       }
 
-      const restored = restoreExportNoteFromAI(candidate, normalizedNotes[index]);
-      if (JSON.stringify(exportMediaReferences(restored)) !== JSON.stringify(exportMediaReferences(original))) {
-        const error = "Media validation failed after restoring the refined note.";
-        console.warn(`Export refinement failed for batch note ${index + 1}: ${error}`);
-        return { original, text: original, failed: true, error };
-      }
-      const lengthSafeText = enforceExportClozeWordLimit(restored, 3);
+      const lengthSafeText = enforceExportClozeWordLimit(edited, 3);
       const validatedText = removeFillerExportClozes(lengthSafeText);
-      return { original, text: renumberExportClozes(validatedText).text, failed: false };
+      if (!warning && validatedText !== edited) {
+        warning = "An invalid proposed cloze was shortened or removed by final validation.";
+      }
+      return { original, text: renumberExportClozes(validatedText).text, warning };
     });
 
     return res.json({ cards });
