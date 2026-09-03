@@ -811,41 +811,6 @@ function restoreExportNoteFromAI(text, normalizedNote) {
   return restored;
 }
 
-function buildConservativeExportFallback(normalizedNote) {
-  const source = String(normalizedNote?.text || "");
-  const oldAnswers = Array.from(source.matchAll(/\{\{\s*c\d+\s*::([\s\S]*?)(?:\}\}|$)/gi))
-    .map((match) => String(match[1] || "").split("::")[0]);
-  const readable = source
-    .replace(/\{\{\s*c\d+\s*::/gi, "")
-    .replace(/::[^{}\n]*\}\}/g, "")
-    .replace(/\}\}/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  const genericWords = new Set([
-    ...EXPORT_CLOZE_FILLER_WORDS,
-    "card", "clinical", "description", "disease", "histo", "histology",
-    "ihc", "mechanism", "note", "result", "results", "site", "syndrome", "test", "tumor",
-  ]);
-  const candidateReadable = readable.replace(/\[ANKI_MEDIA_[^\]]+\]/g, " ");
-  const candidateSources = oldAnswers.length ? oldAnswers : [readable];
-  let candidates = candidateSources.flatMap((value) => Array.from(String(value).matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’+/-]*/gu)))
-    .map((match) => match[0])
-    .filter((word) => !genericWords.has(word.toLowerCase()) && !/^ANKI_MEDIA_/i.test(word));
-  if (!candidates.length) {
-    candidates = Array.from(candidateReadable.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’+/-]*/gu))
-      .map((match) => match[0])
-      .filter((word) => !/^ANKI_MEDIA_/i.test(word));
-  }
-  const anchor = candidates.sort((left, right) => {
-    const score = (word) => (/[A-Z].*[A-Z]|\d|-/.test(word) ? 20 : 0) + Math.min(word.length, 15);
-    return score(right) - score(left);
-  })[0];
-  if (!anchor) return readable;
-  const anchorIndex = readable.toLowerCase().indexOf(anchor.toLowerCase());
-  if (anchorIndex < 0) return readable;
-  return `${readable.slice(0, anchorIndex)}{{c1::${readable.slice(anchorIndex, anchorIndex + anchor.length)}}}${readable.slice(anchorIndex + anchor.length)}`;
-}
-
 function exportSortField(text) {
   return exportVisibleText(text)
     .replace(/<br\s*\/?>/gi, " ")
@@ -1246,7 +1211,7 @@ function joinByDelimiter(parts, delimiter = "===CARD===") {
 app.post("/api/export-refine", async (req, res) => {
   try {
     const apiKey = (process.env.OPENAI_API_KEY || "").trim();
-    if (!apiKey) console.warn("OPENAI_API_KEY is unavailable; Export refinement will use the conservative fallback.");
+    if (!apiKey) return res.status(500).send("Missing OPENAI_API_KEY environment variable.");
 
     const { text, model = "gpt-4.1-mini", delimiter = "===CARD===", extraRules = "" } = req.body || {};
     const rawText = String(text || "");
@@ -1263,20 +1228,15 @@ ${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${Stri
 The fields below have already been normalized into readable semantic text. Media is represented by unique [ANKI_MEDIA_...] placeholders. Preserve every placeholder exactly once and preserve every ===ANKI_FIELD=== boundary. Do not emit raw HTML.
 FIELDS:
 ${normalizedText}`;
-    const attemptExportRewrite = async (input, passName) => {
-      if (!apiKey) return "";
-      try {
-        return await callOpenAI({ apiKey, model, temperature: 0.1, input });
-      } catch (error) {
-        console.warn(`${passName} failed:`, error?.message || error);
-        return "";
-      }
-    };
-    let draft = await attemptExportRewrite(prompt, "Export refinement pass 1");
+    let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
     let outputFields = String(draft || "").split(d).map((card) => card.trim());
     let validationErrors = normalizedNotes.map((note, index) => validateNormalizedExportOutput(outputFields[index], note));
     if (outputFields.length !== normalizedNotes.length || validationErrors.some(Boolean)) {
-      draft = await attemptExportRewrite(`${EXPORT_RULES}
+      draft = await callOpenAI({
+        apiKey,
+        model,
+        temperature: 0.1,
+        input: `${EXPORT_RULES}
 
 NORMALIZED SOURCE NOTES:
 ${normalizedText}
@@ -1288,18 +1248,7 @@ VALIDATION ERRORS:
 ${validationErrors.filter(Boolean).join("\n") || "The number of returned notes did not match."}
 
 First rewrite each complete normalized card into concise high-yield rapid-review form, rank the candidate facts, then cloze only the highest-value facts. Return exactly ${normalizedNotes.length} notes separated by ${d}. Preserve every [ANKI_MEDIA_...] placeholder exactly once and every ===ANKI_FIELD=== boundary. Clozes should normally contain one or two meaningful medical words; a short inseparable entity or phrase may contain a third word. Never use a standalone filler cloze. Return only the repaired note text.`,
-      "Export refinement pass 2");
-      outputFields = String(draft || "").split(d).map((card) => card.trim());
-      validationErrors = normalizedNotes.map((note, index) => validateNormalizedExportOutput(outputFields[index], note));
-    }
-    if (outputFields.length !== normalizedNotes.length || validationErrors.some(Boolean)) {
-      draft = await attemptExportRewrite(`Rewrite each note below into a concise high-yield Anki card.
-Ignore all previous cloze boundaries. Return valid Anki cloze syntax only.
-Give your best usable version even if the source formatting is messy.
-Use only meaningful, minimal clozes and preserve each [ANKI_MEDIA_...] placeholder exactly once.
-Preserve ===ANKI_FIELD=== boundaries. Return exactly ${normalizedNotes.length} notes separated by ${d}, with no commentary.
-
-${normalizedText}`, "Export refinement pass 3");
+      });
       outputFields = String(draft || "").split(d).map((card) => card.trim());
       validationErrors = normalizedNotes.map((note, index) => validateNormalizedExportOutput(outputFields[index], note));
     }
@@ -1310,19 +1259,15 @@ ${normalizedText}`, "Export refinement pass 3");
         ? "The model returned the wrong number of notes."
         : "");
       if (validationError) {
-        console.warn(`Used fallback refinement for batch note ${index + 1}: ${validationError}`);
-        const fallback = buildConservativeExportFallback(normalizedNotes[index]);
-        const restoredFallback = restoreExportNoteFromAI(fallback, normalizedNotes[index]);
-        const safeFallback = removeFillerExportClozes(enforceExportClozeWordLimit(restoredFallback, 3));
-        return { original, text: renumberExportClozes(safeFallback).text, failed: false, usedFallback: true };
+        console.warn(`Export refinement failed for batch note ${index + 1}: ${validationError}`);
+        return { original, text: original, failed: true, error: validationError };
       }
 
       const restored = restoreExportNoteFromAI(candidate, normalizedNotes[index]);
       if (JSON.stringify(exportMediaReferences(restored)) !== JSON.stringify(exportMediaReferences(original))) {
-        console.warn(`Used fallback refinement for batch note ${index + 1}: media restoration validation failed.`);
-        const fallback = buildConservativeExportFallback(normalizedNotes[index]);
-        const restoredFallback = restoreExportNoteFromAI(fallback, normalizedNotes[index]);
-        return { original, text: renumberExportClozes(restoredFallback).text, failed: false, usedFallback: true };
+        const error = "Media validation failed after restoring the refined note.";
+        console.warn(`Export refinement failed for batch note ${index + 1}: ${error}`);
+        return { original, text: original, failed: true, error };
       }
       const lengthSafeText = enforceExportClozeWordLimit(restored, 3);
       const validatedText = removeFillerExportClozes(lengthSafeText);

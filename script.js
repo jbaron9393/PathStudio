@@ -532,7 +532,7 @@ document.addEventListener("DOMContentLoaded", () => {
         item.classList.add("border-red-300", "dark:border-red-800");
         const failureLabel = document.createElement("div");
         failureLabel.className = "mb-2 text-xs font-semibold text-red-600 dark:text-red-400";
-        failureLabel.textContent = "This note could not be read";
+        failureLabel.textContent = "Refinement failed — original note shown";
         if (card.error) failureLabel.title = card.error;
         item.appendChild(failureLabel);
       }
@@ -665,7 +665,12 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
           console.error("Export batch failed:", error);
           failures += batch.length;
-          exportStatus.textContent = `Could not read notes ${start + 1}–${Math.min(start + batch.length, notes.length)}: ${error?.message || error}`;
+          refinedExportCards.push(...batch.map((note) => ({
+            ...note,
+            originalText: note.text,
+            text: note.text,
+            failed: true,
+          })));
         }
 
         exportCompleted.textContent = String(refinedExportCards.length - failures);
