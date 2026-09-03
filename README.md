@@ -31,6 +31,19 @@ node server.js
 Open http://localhost:3000
 
 
+## Editing section rules
+
+Most AI rules are prompt strings in `server.js`. Edit the matching block, save, and restart the server.
+
+| App section | Where to edit |
+| --- | --- |
+| Rewriter — General, HPI, Email, Micro, Gross, Gross Photo, and Path | The matching entry in `PRESETS` (`server.js`, near line 1057) |
+| Cloze Refiner | The `RULES` block (`server.js`, near line 414) |
+| Exports | The standalone `EXPORT_RULES` block in `server.js` (near the `RULES` block). Export rules do not inherit the Cloze Refiner rules |
+
+The Rewriter **Rules Override** box replaces its selected preset for that request. The Refiner and Exports **Extra Cloze Rules** boxes add request-specific instructions to the base cloze rules. These text boxes are defined in `cap_cloze_refiner.html`.
+
+
 
 
 ## Long-term style seeding (Micro / Gross / Path)
