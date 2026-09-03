@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as zlib from "zlib";
+import { createHash, randomUUID } from "crypto";
 import { syncGrossingManualVendor } from "./scripts/sync-grossing-manual.mjs";
 
 dotenv.config({ override: true });
@@ -25,6 +26,20 @@ const MAX_PERSISTED_EXAMPLES_PER_PRESET = 600;
 const STYLE_SEED_FILE = path.join(LEARNING_DIR, "style_seed.json");
 let styleSeedLibrary = { micro: [], gross: [], path: [] };
 let grossingManualSyncPromise = null;
+const exportJobs = new Map();
+const EXPORT_JOB_TTL_MS = 60 * 60 * 1000;
+
+async function removeExportJob(token) {
+  const job = exportJobs.get(token);
+  if (!job) return;
+  exportJobs.delete(token);
+  await fs.rm(job.tempDir, { recursive: true, force: true }).catch(() => {});
+}
+
+function scheduleExportJobRemoval(token) {
+  const timer = setTimeout(() => removeExportJob(token), EXPORT_JOB_TTL_MS);
+  timer.unref?.();
+}
 
 function ensureGrossingManualSynced() {
   const indexPath = path.join(GROSSING_MANUAL_DIR, "index.html");
@@ -137,7 +152,7 @@ console.log("OPENAI_API_KEY length:", k.length);
 
 // ---- app init ----
 const app = express();
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: false }));
 
 // ---- simple username gate ----
@@ -278,6 +293,7 @@ app.post(
   express.raw({ type: "application/octet-stream", limit: "100mb" }),
   async (req, res) => {
     let tempDir = "";
+    let jobCreated = false;
     try {
       const fileName = decodeURIComponent(String(req.get("x-file-name") || "deck.apkg"));
       if (!fileName.toLowerCase().endsWith(".apkg")) {
@@ -298,9 +314,9 @@ app.post(
       const { stdout: archiveList } = await execFileAsync("unzip", ["-Z1", archivePath], {
         maxBuffer: 4 * 1024 * 1024,
       });
-      const databaseEntry = String(archiveList)
-        .split(/\r?\n/)
-        .find((entry) => /^(?:collection\.anki2|collection\.anki21b?)$/i.test(entry.trim()));
+      const archiveEntries = String(archiveList).split(/\r?\n/);
+      const databaseEntry = archiveEntries.find((entry) => /^collection\.anki21b?$/i.test(entry.trim()))
+        || archiveEntries.find((entry) => /^collection\.anki2$/i.test(entry.trim()));
       if (!databaseEntry) {
         return res.status(400).send("This package does not contain an Anki collection database.");
       }
@@ -339,22 +355,38 @@ app.post(
         return res.status(413).send("This deck has more than 5,000 notes. Export a smaller Anki deck and try again.");
       }
 
-      const notes = rows.map((row, index) => {
+      const notes = rows.flatMap((row, index) => {
         const rawFields = Buffer.from(String(row.fldsHex || ""), "hex").toString("utf8");
-        const fields = rawFields
-          .split("\u001f")
-          .map((field) => field.trim());
-        return {
+        const fields = rawFields.split("\u001f");
+        const editableFieldIndexes = fields
+          .map((field, fieldIndex) => (/\{\{c\d+::/i.test(field) ? fieldIndex : -1))
+          .filter((fieldIndex) => fieldIndex >= 0);
+        if (!editableFieldIndexes.length) return [];
+        const text = editableFieldIndexes.map((fieldIndex) => fields[fieldIndex]).join("\n===ANKI_FIELD===\n");
+        return [{
           id: String(row.id || index + 1),
+          noteId: String(row.id || index + 1),
+          editableFieldIndexes,
           sourceOrder: index,
           firstCardId: String(row.firstCardId || row.id || index + 1),
           tags: String(row.tags || "").trim(),
-          fields,
-          text: fields.filter(Boolean).join("\n"),
-        };
-      }).filter((note) => note.text);
+          text,
+          originalText: text,
+        }];
+      });
 
-      return res.json({ fileName, noteCount: notes.length, notes });
+      const exportToken = randomUUID();
+      exportJobs.set(exportToken, {
+        tempDir,
+        archivePath,
+        databasePath,
+        databaseEntry: databaseEntry.trim(),
+        fileName,
+      });
+      jobCreated = true;
+      scheduleExportJobRemoval(exportToken);
+
+      return res.json({ exportToken, fileName, noteCount: notes.length, notes });
     } catch (error) {
       console.error("APKG extraction failed:", error);
       const missingTool = error?.code === "ENOENT";
@@ -364,10 +396,109 @@ app.post(
           : `Unable to read this Anki package: ${error?.message || error}`,
       );
     } finally {
-      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      if (tempDir && !jobCreated) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   },
 );
+
+app.post("/api/exports/apkg/rebuild", async (req, res) => {
+  const token = String(req.body?.exportToken || "");
+  const job = exportJobs.get(token);
+  if (!job) return res.status(410).send("This export session expired. Upload the original deck again.");
+
+  try {
+    const edits = Array.isArray(req.body?.edits) ? req.body.edits : [];
+    const statements = ["BEGIN IMMEDIATE;"];
+    let nextCardId = Date.now() * 1000;
+
+    for (const edit of edits) {
+      const noteId = String(edit?.noteId || "");
+      if (!/^\d+$/.test(noteId)) throw new Error("Invalid Anki note ID.");
+      const { stdout } = await execFileAsync("sqlite3", [
+        "-readonly", job.databasePath,
+        `SELECT hex(flds) FROM notes WHERE id=${noteId};`,
+      ]);
+      if (!String(stdout).trim()) throw new Error(`Anki note ${noteId} was not found.`);
+
+      const originalFields = Buffer.from(String(stdout).trim(), "hex").toString("utf8").split("\u001f");
+      const indexes = Array.isArray(edit?.editableFieldIndexes) ? edit.editableFieldIndexes.map(Number) : [];
+      const editedFields = String(edit?.text || "").split("\n===ANKI_FIELD===\n");
+      if (!indexes.length || indexes.length !== editedFields.length) throw new Error(`Invalid field edit for note ${noteId}.`);
+
+      const originalEditableText = indexes.map((fieldIndex) => originalFields[fieldIndex]).join("\n===ANKI_FIELD===\n");
+      const editedText = removeFillerExportClozes(
+        enforceExportClozeWordLimit(editedFields.join("\n===ANKI_FIELD===\n"), 3),
+      );
+      if (!exportClozesWithinWordLimit(editedText, 3) || !exportClozesAreMeaningful(editedText)) {
+        throw new Error(`Note ${noteId} contains an invalid cloze answer.`);
+      }
+      if (JSON.stringify(exportMediaReferences(editedText)) !== JSON.stringify(exportMediaReferences(originalEditableText))) {
+        throw new Error(`Note ${noteId} changed an image or sound reference and was not written.`);
+      }
+      const oldNumbers = clozeNumbersInOrder(originalEditableText);
+      const normalized = renumberExportClozes(editedText);
+      const newGroupCount = normalized.numbers.length;
+      if (!newGroupCount) throw new Error(`Note ${noteId} has no cloze groups after editing.`);
+      const { stdout: cardJson } = await execFileAsync("sqlite3", [
+        "-json", "-readonly", job.databasePath,
+        `SELECT id, ord FROM cards WHERE nid=${noteId} ORDER BY id;`,
+      ]);
+      const cardRows = JSON.parse(cardJson || "[]");
+      const cardsByOrd = new Map(cardRows.map((card) => [Number(card.ord), card]));
+      const oldCards = oldNumbers.map((number) => cardsByOrd.get(Number(number) - 1));
+      if (oldCards.some((card) => !card)) {
+        throw new Error(`Note ${noteId} does not have a card for every cloze group.`);
+      }
+
+      const normalizedFields = normalized.text.split("\n===ANKI_FIELD===\n");
+      indexes.forEach((fieldIndex, index) => { originalFields[fieldIndex] = normalizedFields[index]; });
+      const fieldHex = Buffer.from(originalFields.join("\u001f"), "utf8").toString("hex");
+      const sortField = exportSortField(originalFields[0]);
+      const sortFieldHex = Buffer.from(sortField, "utf8").toString("hex");
+      const checksum = Number.parseInt(createHash("sha1").update(sortField).digest("hex").slice(0, 8), 16);
+      const modifiedAt = Math.floor(Date.now() / 1000);
+      statements.push(`UPDATE notes SET flds=CAST(X'${fieldHex}' AS TEXT), sfld=CAST(X'${sortFieldHex}' AS TEXT), csum=${checksum}, mod=${modifiedAt}, usn=-1 WHERE id=${noteId};`);
+
+      const retainedCount = Math.min(oldCards.length, newGroupCount);
+      const oldCardIds = oldCards.map((card) => Number(card.id));
+      statements.push(`UPDATE cards SET ord=ord+10000 WHERE id IN (${oldCardIds.join(",")});`);
+      for (let index = 0; index < retainedCount; index += 1) {
+        statements.push(`UPDATE cards SET ord=${index}, mod=${modifiedAt}, usn=-1 WHERE id=${Number(oldCards[index].id)};`);
+      }
+      for (let index = retainedCount; index < oldCards.length; index += 1) {
+        const cardId = Number(oldCards[index].id);
+        statements.push(`DELETE FROM revlog WHERE cid=${cardId};`);
+        statements.push(`DELETE FROM cards WHERE id=${cardId};`);
+      }
+      for (let index = retainedCount; index < newGroupCount; index += 1) {
+        nextCardId += 1;
+        const sourceCardId = Number(oldCards[0].id);
+        statements.push(`INSERT INTO cards (id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,left,odue,odid,flags,data) SELECT ${nextCardId},nid,did,${index},${modifiedAt},-1,0,0,due,0,0,0,0,0,0,0,0,'' FROM cards WHERE id=${sourceCardId};`);
+      }
+    }
+    statements.push("COMMIT;");
+    await execFileAsync("sqlite3", [job.databasePath, statements.join("\n")], { maxBuffer: 20 * 1024 * 1024 });
+
+    const archiveDatabasePath = path.join(job.tempDir, job.databaseEntry);
+    if (/\.anki21b$/i.test(job.databaseEntry)) {
+      if (typeof zlib.zstdCompress !== "function") throw new Error("Node.js zstd compression support is required to rebuild this package.");
+      const database = await fs.readFile(job.databasePath);
+      await fs.writeFile(archiveDatabasePath, await promisify(zlib.zstdCompress)(database));
+    } else {
+      await fs.copyFile(job.databasePath, archiveDatabasePath);
+    }
+    await execFileAsync("zip", ["-q", job.archivePath, job.databaseEntry], { cwd: job.tempDir });
+    const output = await fs.readFile(job.archivePath);
+    const outputName = `${path.basename(job.fileName, path.extname(job.fileName))}_edited.apkg`;
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${outputName.replace(/["\r\n]/g, "_")}"`);
+    res.send(output);
+    await removeExportJob(token);
+  } catch (error) {
+    console.error("APKG rebuild failed:", error);
+    return res.status(500).send(`Unable to rebuild this Anki package: ${error?.message || error}`);
+  }
+});
 
 // Static files protected behind login
 app.use(express.static(__dirname));
@@ -486,6 +617,185 @@ IMPORTANT
 - Do NOT merge unrelated concepts.
 - Do NOT explain unless asked.
 `.trim();
+
+const EXPORT_RULES = `
+You are editing Anki cards for fast board-review recognition.
+
+These rules are the complete source of truth for Export-tab cloze editing. Do not use any other Anki editing rules.
+
+CORE PRINCIPLE
+For every note, perform these two steps internally, in order. This is a card-rewrite task, not merely a cloze-placement task.
+
+STEP 1 — REWRITE/SUMMARIZE THE CARD
+- First read the entire original note and identify the few high-yield facts it is actually teaching.
+- Before adding any clozes, rewrite it into concise, intentional rapid-review form.
+- Shorten sentences; remove redundant explanations and low-yield details; convert paragraphs to concise phrases; combine repetitions; use arrows/abbreviations; reorganize and simplify wording; retain only useful explanatory context.
+- Do not merely preserve the original wording. The result should look intentionally written by an experienced pathology resident.
+- Examples before clozing:
+  - A long Fabry paragraph becomes: Fabry disease:<br>EM: Zebra pattern of lipid inclusions<br>Due to GL3 accumulation from α-galactosidase A deficiency.
+  - Magnesium/calcium prose becomes: Low Mg → hypocalcemia via ↓ PTH release.
+  - Pregnancy renal prose becomes: Pregnancy:<br>↑ GFR → ↓ serum Cr/BUN.
+
+STEP 2 — ADD MINIMAL CLOZES
+- Only after rewriting, choose the smallest meaningful high-yield facts to recall.
+- Existing spans and numbers are only source material. Do not preserve their boundaries, count, or placement.
+- Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
+- Clozes should normally contain only 1–2 words.
+- A short inseparable disease/entity name, fusion, molecular alteration, or phrase may use a third word when splitting it would make the answer awkward or less meaningful (for example {{c2::Deep soft tissue}}).
+- Prefer a word fragment whenever it tests the association faster: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
+- Remove giant clozes, leave explanations visible, and rewrite surrounding wording when needed to make a concise, accurate, fast-review card.
+
+WHAT TO CLOZE
+1. Disease, diagnosis, tumor, syndrome, and molecular entity names may be clozed (for example {{c1::Fabry}} disease, {{c1::BCOR-CCNB3}} tumor, or {{c1::Desmoplastic}} small round cell tumor).
+2. Clozing the entity does not replace its distinguishing features; still select the best one or two morphology, site, IHC, enzyme, or molecular facts.
+3. After rewriting, internally rank candidates in this order: entity/diagnosis; defining morphology; characteristic site; distinctive IHC; defining gene/fusion/enzyme; important physiologic result; high-yield age/sex association; generic supporting detail. Do not output this ranking.
+4. Cloze only the highest-value candidates from that ranking.
+5. Usually leave explanatory physiology, mechanisms that reveal the answer, long lists, generic histology/markers, prognosis, and redundant details visible.
+6. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
+7. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
+8. Related facts may share one number. Do not create a separate cloze card for every fact.
+9. A short cloze is not automatically valid: its answer must demonstrate useful medical knowledge when recalled.
+
+NEVER CLOZE FILLER
+- Never cloze articles, conjunctions, prepositions, section labels, generic verbs/adjectives, or grammar-predictable words.
+- Specifically do not cloze: the, a, an, due, if, in, on, of, to, and, or, patchy, higher, or lower. Direction words may be clozed only when the direction itself is the medical fact being tested.
+- Bad anchors include {{c1::The}}, {{c1::In}}, {{c1::Due}}, {{c1::IF}}, {{c1::Patchy}} CD99+, and {{c1::Higher}} temperature.
+- Avoid low-value standalone clozes such as deep, poor, renal, teenage, nest, increased, or decreased unless that exact word/direction is the important tested result.
+- Before accepting an answer, ask whether recalling the missing text proves useful medical knowledge. If not, remove or move that cloze.
+
+BOUNDARIES AND NUMBERING
+- You may remove, shrink, move, merge, or split old clozes.
+- Delete low-yield old clozes. Old placement and the old number of groups are not authoritative.
+- Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
+- Usually use only 1–3 logical groups; retain c4 only when a fourth distinct high-yield fact is genuinely useful.
+- For tumors, a useful pattern is c1 entity, c2 key site/morphology, and c3 defining IHC/genetics.
+
+QUALITY EXAMPLES
+- {{c1::Fabry}} disease<br>EM: {{c2::Zebra}} pattern of lipid inclusions<br>Due to GL3 accumulation from α-{{c3::galactosidase A}} deficiency.
+- {{c1::Hypocalcemia}} becomes {{c1::Hypo}}calcemia.
+- {{c2::Hyperphosphatemia}} becomes {{c2::hyper}}phosphatemia.
+- {{c3::Renal osteodystrophy}} becomes renal {{c3::osteo}}dystrophy.
+- A giant Fabry cloze becomes: Fabry disease:<br>EM: {{c1::Zebra}} bodies<br>Due to α-{{c2::galactosidase A}} deficiency.
+- A long potassium explanation becomes: Acidosis → K+ shifts out → {{c1::hyper}}kalemia.<br>Alkalosis → K+ shifts in → {{c1::hypo}}kalemia.
+- DSRCT should emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, rather than hiding demographics, histology, IHC, and genetics in one giant cloze.
+- BCOR-CCNB3 should emphasize {{c1::BCOR-CCNB3}}, site {{c2::Bone}}, and {{c3::BCOR / CCNB3}} IHC.
+- CIC-DUX4 should emphasize {{c1::CIC-DUX4}}, site {{c2::Soft tissue}}, and {{c3::WT1}} IHC.
+- Keep mechanisms visible and cloze the result: Fever → O2 dissociates from Hb → ABG {{c1::under}}estimates pO2; hypothermia → O2 binds Hb → ABG {{c1::over}}estimates pO2.
+
+ACCURACY AND STORAGE
+- Do not invent or silently change medical facts. Correct only obvious typos.
+- Preserve all image tags, sound references, and media filenames exactly.
+- Preserve useful HTML structure where possible. The website creates a separate clean-text preview.
+
+FINAL CHECK
+- Confirm that you actually rewrote/summarized the source and removed redundant or low-yield prose before adding clozes.
+- Inspect every {{cN::answer}}; keep it to 1–2 words unless a short inseparable name or phrase genuinely requires a third word.
+- For every oversized cloze, remove the old wrapper, select its most important short answer, wrap only that answer, and leave all remaining text visible.
+- Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
+- Consider a partial-word cloze whenever it tests the same association faster.
+- Merge redundant groups and make numbering consecutive from c1.
+- Simplify again if the result would not be answerable in 2–5 seconds.
+- Confirm every cloze tests meaningful medical knowledge and no cloze contains filler or a grammar-only cue.
+- If the diagnosis is clozed, confirm that the most distinguishing features were also considered.
+
+OUTPUT
+- Return the same number of fields in the same order, separated only by the supplied delimiter.
+- Return only the edited field text: no commentary, labels, Markdown fences, or previews.
+- You may condense or reorganize visible wording to support fast review, but preserve its medical meaning and all media references.
+`.trim();
+
+function clozeNumbersInOrder(text) {
+  const seen = new Set();
+  const numbers = [];
+  for (const match of String(text || "").matchAll(/\{\{c(\d+)::/gi)) {
+    if (!seen.has(match[1])) {
+      seen.add(match[1]);
+      numbers.push(match[1]);
+    }
+  }
+  return numbers;
+}
+
+function renumberExportClozes(text) {
+  const numbers = clozeNumbersInOrder(text);
+  const map = new Map(numbers.map((number, index) => [number, String(index + 1)]));
+  return {
+    text: String(text || "").replace(/\{\{c(\d+)::/gi, (_match, number) => `{{c${map.get(number)}::`),
+    numbers,
+  };
+}
+
+function exportVisibleText(text) {
+  return String(text || "").replace(/\{\{c\d+::([\s\S]*?)\}\}/gi, (_match, inner) => String(inner).split("::")[0]);
+}
+
+function exportMediaReferences(text) {
+  return Array.from(String(text || "").matchAll(/<img\b[^>]*>|\[sound:[^\]]+\]/gi))
+    .map((match) => match[0])
+    .sort();
+}
+
+function exportSortField(text) {
+  return exportVisibleText(text)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function exportClozesWithinWordLimit(text, maxWords = 3) {
+  for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
+    const answer = String(match[1] || "").split("::")[0].trim();
+    const visibleAnswer = answer.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim();
+    if (!visibleAnswer || visibleAnswer.split(/\s+/).filter(Boolean).length > maxWords) return false;
+  }
+  return true;
+}
+
+const EXPORT_CLOZE_FILLER_WORDS = new Set([
+  "a", "an", "and", "deep", "due", "if", "in", "nest", "of", "on", "or", "patchy", "poor", "renal", "teenage", "the", "to",
+]);
+
+function exportClozesAreMeaningful(text) {
+  for (const match of String(text || "").matchAll(/\{\{c\d+::([\s\S]*?)\}\}/gi)) {
+    const answer = String(match[1] || "").split("::")[0].replace(/<[^>]*>/g, " ").trim();
+    const words = answer.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    if (!words.length || (words.length === 1 && EXPORT_CLOZE_FILLER_WORDS.has(words[0]))) return false;
+  }
+  return true;
+}
+
+function removeFillerExportClozes(text) {
+  return String(text || "").replace(/\{\{c\d+::([\s\S]*?)\}\}/gi, (full, inner) => {
+    const answer = String(inner || "").split("::")[0];
+    const words = answer.replace(/<[^>]*>/g, " ").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    return !words.length || (words.length === 1 && EXPORT_CLOZE_FILLER_WORDS.has(words[0])) ? answer : full;
+  });
+}
+
+function enforceExportClozeWordLimit(text, maxWords = 3) {
+  return String(text || "").replace(/\{\{c(\d+)::([\s\S]*?)\}\}/gi, (full, number, inner) => {
+    const parts = String(inner).split("::");
+    const answer = String(parts.shift() || "").trim();
+    const hint = parts.length ? parts.join("::").trim() : "";
+    const visibleWords = answer.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").trim().split(/\s+/).filter(Boolean);
+    if (visibleWords.length <= maxWords) return full;
+
+    // This is a last-resort safety net after the model repair pass. Select the
+    // first visible word without moving or deleting any HTML around it.
+    const candidates = Array.from(answer.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’+/-]*/gu));
+    const word = candidates.find((candidate) => {
+      const before = answer.slice(0, candidate.index);
+      return before.lastIndexOf("<") <= before.lastIndexOf(">");
+    });
+    if (!word) return answer;
+    const anchor = word[0];
+    const anchorIndex = word.index;
+    const wrapper = `{{c${number}::${anchor}${hint ? `::${hint}` : ""}}}`;
+    return `${answer.slice(0, anchorIndex)}${wrapper}${answer.slice(anchorIndex + anchor.length)}`;
+  });
+}
 
 function pickAnchorWords(content, maxWords = 3) {
   const s = String(content || "").trim();
@@ -657,49 +967,6 @@ function capClozesToInput(outText, inText, delimiter = "===CARD===") {
   return fixedCards.join(d);
 }
 
-function retainOriginalCardsWhenContentIsLost(outText, inText, delimiter = "===CARD===") {
-  const d = String(delimiter || "===CARD===");
-  const outputCards = String(outText || "").split(d);
-  const inputCards = String(inText || "").split(d);
-
-  const contentTokens = (card) => String(card || "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\{\{c\d+::|\}\}/gi, " ")
-    .toLowerCase()
-    .match(/[a-z0-9]+/g)?.filter((token) => token.length > 1) || [];
-
-  return inputCards.map((inputCard, index) => {
-    const outputCard = outputCards[index];
-    if (!outputCard?.trim()) return inputCard;
-
-    const inputTokens = contentTokens(inputCard);
-    if (inputTokens.length < 8) return outputCard;
-
-    // Compare token counts as a multiset so repeated numbered-list content is
-    // also protected. If refinement drops substantial source information, the
-    // untouched original is safer than an incomplete card.
-    const available = new Map();
-    contentTokens(outputCard).forEach((token) => {
-      available.set(token, (available.get(token) || 0) + 1);
-    });
-    let retained = 0;
-    inputTokens.forEach((token) => {
-      const count = available.get(token) || 0;
-      if (count > 0) {
-        retained += 1;
-        available.set(token, count - 1);
-      }
-    });
-
-    // Long, wordy cards are allowed to lose redundant phrasing as they are
-    // condensed. Shorter cards retain the stricter threshold so a concise
-    // source is not accidentally gutted.
-    const minimumRetention = inputTokens.length >= 70 ? 0.4 : 0.8;
-    return retained / inputTokens.length >= minimumRetention ? outputCard : inputCard;
-  }).join(d);
-}
-
-
 async function callOpenAI({ apiKey, model, temperature, input }) {
   const r = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -865,6 +1132,66 @@ function joinByDelimiter(parts, delimiter = "===CARD===") {
 
 
 // --------- REFINE (CLOZE) ---------
+app.post("/api/export-refine", async (req, res) => {
+  try {
+    const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+    if (!apiKey) return res.status(500).send("Missing OPENAI_API_KEY environment variable.");
+
+    const { text, model = "gpt-4.1-mini", delimiter = "===CARD===", extraRules = "" } = req.body || {};
+    const rawText = String(text || "");
+    const d = String(delimiter || "===CARD===");
+    const sourceFields = rawText.split(d);
+    if (!rawText.trim()) return res.status(400).send("Missing 'text'.");
+
+    const prompt = `${EXPORT_RULES}
+
+DELIMITER: ${d}
+${String(extraRules || "").trim() ? `USER-SPECIFIED EXPORT INSTRUCTIONS:\n${String(extraRules).trim()}\n` : ""}
+FIELDS:
+${rawText}`;
+    let draft = await callOpenAI({ apiKey, model, temperature: 0.1, input: prompt });
+    if (!exportClozesWithinWordLimit(draft, 3) || !exportClozesAreMeaningful(draft)) {
+      draft = await callOpenAI({
+        apiKey,
+        model,
+        temperature: 0.1,
+        input: `${EXPORT_RULES}
+
+REPAIR THIS DRAFT:
+${draft}
+
+First rewrite each complete card into concise high-yield rapid-review form, rank the candidate facts, then cloze only the highest-value facts. Return the same fields separated by ${d}. Clozes should normally contain one or two meaningful medical words; a short inseparable entity or phrase may contain a third word. Move all remaining words outside each wrapper. Never use a standalone filler cloze such as the, a, an, due, if, in, of, to, deep, poor, renal, teenage, nest, or patchy. Use direction words only when direction is the tested medical fact. Return only the repaired field text.`,
+      });
+    }
+    const outputFields = String(draft || "").split(d);
+
+    const cards = sourceFields.map((original, index) => {
+      const candidate = outputFields[index];
+      let warning = "";
+      let edited = candidate;
+
+      if (candidate == null || !clozeNumbersInOrder(candidate).length) {
+        edited = original;
+        warning = "No valid edited cloze text was returned, so only numbering was updated.";
+      } else if (JSON.stringify(exportMediaReferences(candidate)) !== JSON.stringify(exportMediaReferences(original))) {
+        edited = original;
+        warning = "The proposed edit changed a media reference, so only numbering was updated.";
+      }
+
+      const lengthSafeText = enforceExportClozeWordLimit(edited, 3);
+      const validatedText = removeFillerExportClozes(lengthSafeText);
+      if (!warning && validatedText !== edited) {
+        warning = "An invalid proposed cloze was shortened or removed by final validation.";
+      }
+      return { original, text: renumberExportClozes(validatedText).text, warning };
+    });
+
+    return res.json({ cards });
+  } catch (error) {
+    return res.status(500).send(String(error?.message || error));
+  }
+});
+
 app.post("/api/refine", async (req, res) => {
   try {
     const apiKey = (process.env.OPENAI_API_KEY || "").trim();
@@ -875,8 +1202,7 @@ app.post("/api/refine", async (req, res) => {
       model = "gpt-4.1-mini",
       temperature = 0.2,
       delimiter = "===CARD===",
-      extraRules = "",
-      preserveContent = false
+      extraRules = ""
     } = req.body || {};
 
     const rawText = String(text || "").trim();
@@ -884,24 +1210,6 @@ app.post("/api/refine", async (req, res) => {
 
     const d = String(delimiter || "===CARD===");
     const extra = String(extraRules || "").trim();
-    const preservationRules = preserveContent ? `
-EXPORT CONTENT-PRESERVATION RULES:
-- Retain all CORE medical facts, diagnoses, mechanisms, qualifiers, hallmark findings, and numbered items from every original card.
-- For long or repetitive cards, actively shorten redundant prose, combine overlapping statements, and reorganize into concise, skimmable sections. Do not merely reproduce a wordy paragraph.
-- Keep the minimum context needed to understand each mechanism and cloze; remove filler transitions and repeated explanations without removing board-relevant pathology facts.
-- Improve existing clozes according to the Refiner rules. For a long clozed list, retain every item as visible text; for a wordy sentence, retain its core fact while moving only a medically meaningful 1–2 word anchor inside the wrapper.
-- Reorder sections or list items when that makes the pathology concept easier to study.
-- Return plain card text and Anki cloze wrappers only. Do not output HTML tags, style attributes, text colors, Markdown, or code fences.
-- For a list enclosed by one cloze, unwrap the list and reuse that cloze number on the 2–4 highest-yield pathology terms rather than clozing the whole list or merely its first item.
-- In export mode, you may add a new sequential cloze when a long card contains an important unclozed diagnosis, mechanism, hallmark histology, or complication. Add only what materially improves recall and do not over-cloze.
-- Export mode may relocate or remove an existing poor cloze; preserve the tested fact, not a bad wrapper. Choose the answer the prompt is actually asking for.
-- Never cloze generic grammar or low-information words such as "more," "severe," "collect," "Gram," "temporal," or a unit such as "months." Cloze the discriminating diagnosis, finding, organism, specimen, or number instead.
-- For a number plus unit, cloze the number and leave the unit visible (for example, {{c1::3}} months). For an instruction, leave the action visible and cloze the specimen or test (for example, Collect first voided {{c1::urine}}).
-- Reuse a cloze number for tightly linked facts that should be recalled together, and consolidate excessive numbering into a small logical set. Keep numbering sequential.
-- Format disease-to-repeat, organism-to-product, syndrome-to-genetics, and similar mappings as short parallel lines. Cloze the distinguishing side of each relationship, not the heading or filler text.
-- Favor board-discriminating pathology anchors: the diagnosis after sensitivity/specificity language, hallmark morphology, causative mutation, characteristic organism, key lab, inheritance, and defining complication.
-` : "";
-
     let input = "";
 
     // =======================
@@ -912,7 +1220,6 @@ EXPORT CONTENT-PRESERVATION RULES:
 You are editing Anki cloze cards.
 
 ${RULES}
-${preservationRules}
 
 USER-SPECIFIED RULES:
 - Apply the user's Extra Cloze Rules in addition to the base rules above.
@@ -939,7 +1246,6 @@ ${rawText}
       // =======================
       input = `
 ${RULES}
-${preservationRules}
 
 BATCH MODE INSTRUCTIONS
 - The user input may contain multiple cards separated by the delimiter: ${d}
@@ -986,16 +1292,12 @@ Return only the repaired cards, separated by ${d} exactly as in the source.
     // User rules can steer content selection, but should not accidentally create
     // long clozes, new clozes on an already-clozed card, or broken numbering.
     let fixed = out;
-    // Content fallback must happen before formatting/cloze enforcement. Doing it
-    // last could restore the original card's oversized clozes unchanged.
-    if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
     fixed = stripPresentationHtml(fixed);
-    if (!preserveContent) fixed = capClozesToInput(fixed, rawText, d);
+    fixed = capClozesToInput(fixed, rawText, d);
     fixed = enforceClozeWordLimit(fixed, 2);
     fixed = removePartialWordClozes(fixed);
     fixed = renumberClozesPerCard(fixed, d);
     fixed = limitEmphasisFormatting(fixed, d, 3, 3);
-    if (preserveContent) fixed = retainOriginalCardsWhenContentIsLost(fixed, rawText, d);
 
     return res.json({ text: fixed });
   } catch (e) {
