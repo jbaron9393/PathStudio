@@ -632,6 +632,14 @@ Approach each note like an experienced resident making a quick manual edit. Unde
 - A successful edit may be no more than shrinking a cloze, moving it to a better target, cleaning wording, or removing one redundant sentence.
 - Return exactly one refined version that replaces the editable source text. Never append the original, an alternate version, commentary, or a separator.
 
+PRESERVE THE OPENING TERM FOR ALPHABETICAL ORDER
+- Keep the original note’s first meaningful word or identifying term at the beginning of the refined output whenever reasonably possible. The default is: original first meaningful term → refined first meaningful term.
+- Determine the opening term from rendered text. Ignore leading HTML tags, line breaks, whitespace, bullets, numbering, cloze wrappers, and other formatting.
+- Existing cloze markup around the opening text may change, but the rendered opening term should remain the same and in the same leading position.
+- Do not unnecessarily remove, rename, or move an opening term such as “Creatinine clearance,” “Fanconi syndrome,” “Schwannoma,” or “Adult Rhabdomyoma.” This keeps the edited note aligned with an alphabetically sorted source deck.
+- Do not invent or prepend an artificial title merely to satisfy this rule. If retaining the opening term would make the result medically confusing or nonsensical, accurate editing takes priority.
+- The rest of the card may still be shortened, cleaned, or reorganized when useful.
+
 CLOZE THE ANSWER; LEAVE THE CLUE
 - Existing cloze boundaries, numbers, and group counts are suggestions, not requirements.
 - Replace paragraph-, sentence-, and list-sized clozes with 1–3 small, high-yield recall targets while keeping the useful facts visible.
@@ -686,8 +694,9 @@ Before returning each note, confirm:
 4. Every cloze tests an actual medical fact rather than generic language or a list number.
 5. Explanatory and supporting information remains visible.
 6. The card can be answered rapidly.
-7. The result looks manually edited rather than regenerated.
-8. There is exactly one refined version of the note.
+7. The rendered first meaningful term still matches the original and remains at the beginning, unless preserving it would be medically confusing.
+8. The result looks manually edited rather than regenerated.
+9. There is exactly one refined version of the note.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
@@ -1151,7 +1160,7 @@ ${rawText}`;
 REPAIR THIS DRAFT:
 ${draft}
 
-Repair only the invalid clozes while preserving the draft’s useful wording, explanations, formatting, and organization. Return the same fields separated by ${d}. Keep each cloze to one or two medically meaningful words, move supporting text outside oversized wrappers, and never cloze generic language or list numbers. Do not regenerate the cards, append alternate versions, or remove useful visible details. Return only the repaired field text.`,
+Repair only the invalid clozes while preserving the draft’s opening meaningful term, useful wording, explanations, formatting, and organization. Return the same fields separated by ${d}. Keep each cloze to one or two medically meaningful words, move supporting text outside oversized wrappers, and never cloze generic language or list numbers. Do not regenerate the cards, append alternate versions, or remove useful visible details. Return only the repaired field text.`,
       });
     }
     const outputFields = String(draft || "").split(d);
