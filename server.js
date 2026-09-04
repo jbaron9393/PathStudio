@@ -619,82 +619,80 @@ IMPORTANT
 `.trim();
 
 const EXPORT_RULES = `
-You are editing Anki cards for fast board-review recognition.
+You are editing existing Anki cards for fast, high-yield board review.
 
 These rules are the complete source of truth for Export-tab cloze editing. Do not use any other Anki editing rules.
 
-CORE PRINCIPLE
-For every note, perform these two steps internally, in order. This is a card-rewrite task, not merely a cloze-placement task.
+CORE PRINCIPLE — EDIT, DO NOT REGENERATE
+Approach each note like an experienced resident making a quick manual edit. Understand what the existing card is trying to test, then make the minimum useful changes needed to improve it.
+- Preserve useful wording, explanations, formatting, organization, and medical detail.
+- Do not rewrite, summarize, or reorganize merely to make the card look different.
+- If a card is already concise and useful, keep it mostly unchanged.
+- Shorten or remove material only when it is genuinely redundant, verbose, or obstructs rapid review.
+- A successful edit may be no more than shrinking a cloze, moving it to a better target, cleaning wording, or removing one redundant sentence.
+- Return exactly one refined version that replaces the editable source text. Never append the original, an alternate version, commentary, or a separator.
 
-STEP 1 — REWRITE/SUMMARIZE THE CARD
-- First read the entire original note and identify the few high-yield facts it is actually teaching.
-- Before adding any clozes, rewrite it into concise, intentional rapid-review form.
-- Shorten sentences; remove redundant explanations and low-yield details; convert paragraphs to concise phrases; combine repetitions; use arrows/abbreviations; reorganize and simplify wording; retain only useful explanatory context.
-- Do not merely preserve the original wording. The result should look intentionally written by an experienced pathology resident.
-- Examples before clozing:
-  - A long Fabry paragraph becomes: Fabry disease:<br>EM: Zebra pattern of lipid inclusions<br>Due to GL3 accumulation from α-galactosidase A deficiency.
-  - Magnesium/calcium prose becomes: Low Mg → hypocalcemia via ↓ PTH release.
-  - Pregnancy renal prose becomes: Pregnancy:<br>↑ GFR → ↓ serum Cr/BUN.
-
-STEP 2 — ADD MINIMAL CLOZES
-- Only after rewriting, choose the smallest meaningful high-yield facts to recall.
-- Existing spans and numbers are only source material. Do not preserve their boundaries, count, or placement.
-- Hide the smallest high-yield distinguishing fragment that enables recall in 2–5 seconds.
-- HARD RULE: every individual cloze answer must contain only 1–2 whitespace-separated words. This is mandatory, not a preference.
-- A named entity or molecular alteration may remain intact only when it is an inseparable one- or two-word name. Otherwise hide only its distinguishing portion.
-- Prefer a word fragment whenever it tests the association faster: {{c1::Hypo}}calcemia, {{c1::hyper}}kalemia, renal {{c3::osteo}}dystrophy, α-{{c2::galactosidase A}}, EWSR1-{{c3::WT1}}.
-- Remove giant clozes, leave explanations visible, and rewrite surrounding wording when needed to make a concise, accurate, fast-review card.
+CLOZE THE ANSWER; LEAVE THE CLUE
+- Existing cloze boundaries, numbers, and group counts are suggestions, not requirements.
+- Replace paragraph-, sentence-, and list-sized clozes with 1–3 small, high-yield recall targets while keeping the useful facts visible.
+- Hide the smallest medically meaningful distinguishing text that can be recalled in 2–5 seconds.
+- Clozes should normally contain only 1–2 words. An inseparable entity name or molecular alteration may remain intact when the full name is the appropriate recognition target.
+- Partial-word clozes are encouraged when they make recognition faster and cleaner: micro{{c1::albuminuria}}, {{c1::hyper}}kalemia, {{c1::hypo}}calcemia, renal {{c1::osteo}}dystrophy.
+- Leave explanatory mechanisms and supporting information visible. Not every fact deserves a cloze.
+- Preserve useful details when unwrapping a large original cloze; do not summarize them away automatically.
 
 WHAT TO CLOZE
-1. Prioritize diagnosis/entity, signature site, signature morphology, distinctive IHC, defining fusion/genetic alteration, key directional lab change, and genuinely high-yield age/sex associations.
-2. Usually leave explanatory physiology, mechanisms that reveal the answer, long lists, generic histology/markers, prognosis, and redundant details visible.
-3. Never hide a sentence, paragraph, complete histology description, or entire IHC panel when a short anchor can test the association.
-4. Use visible clues and hide only the critical fragment. For example, Site: {{c2::Bone}}.
-5. Related facts may share one number. Do not create a separate cloze card for every fact.
-6. A short cloze is not automatically valid: its answer must demonstrate useful medical knowledge when recalled.
+1. Choose only facts whose recall demonstrates medically useful knowledge.
+2. Prioritize diagnosis/entity, characteristic site, defining morphology, distinctive IHC, defining molecular alteration, important syndrome association, and key directional laboratory findings.
+3. Disease and tumor names may be clozed. Use a distinguishing portion when it provides a clean clue (Adult {{c1::Rhabdomyoma}}), but hide the full entity when that is the appropriate recognition target. Do not force either pattern universally.
+4. Related facts may share a cloze number. Do not create a separate card for every fact.
+5. Usually leave mechanisms, supporting explanations, long descriptive lists, generic morphology, generic stains, routine demographics, and prognosis visible unless one is genuinely distinguishing.
+6. When a list is the tested material, cloze only a few high-yield items and leave the rest visible. Example: Prerenal acute renal failure causes: {{c1::Hypovolemia}}, CHF, cirrhosis, {{c1::NSAIDs}}, ACE inhibitors, vasopressors.
 
-NEVER CLOZE FILLER
-- Never cloze articles, conjunctions, prepositions, section labels, generic verbs/adjectives, or grammar-predictable words.
-- Specifically do not cloze: the, a, an, due, if, in, on, of, to, and, or, patchy, higher, or lower. Direction words may be clozed only when the direction itself is the medical fact being tested.
-- Bad anchors include {{c1::The}}, {{c1::In}}, {{c1::Due}}, {{c1::IF}}, {{c1::Patchy}} CD99+, and {{c1::Higher}} temperature.
-- Before accepting an answer, ask whether recalling the missing text proves useful medical knowledge. If not, remove or move that cloze.
+NEVER CLOZE GENERIC LANGUAGE
+- Never cloze an article, conjunction, preposition, section label, list number, HTML markup, generic grammar word, or a vague verb/adjective merely because it appears in a distinct section.
+- Bad targets include {{c1::Produced}}, {{c1::Mostly}}, {{c2::Intersecting}}, {{c1::1}}, {{c1::Type}}, and {{c12::Usually}}.
+- Also avoid standalone clozes such as the, a, an, due, if, in, on, of, to, and, or, patchy, higher, or lower. A direction word is appropriate only when the direction itself is the medical fact being tested.
+- Before accepting each cloze, ask: “Would recalling this hidden text demonstrate medically useful knowledge?” If not, move or remove it.
+
+PATHOLOGY CARDS
+- Prefer the few characteristics that distinguish the entity: entity name, characteristic site, defining morphology, distinctive IHC, defining molecular alteration, or important syndrome association.
+- Do not automatically cloze every age, sex, generic morphology word, adjective, or positive stain.
+- Example:<br>Adult Rhabdomyoma<br>Cx: Adult, M>F, head and neck<br>Histo: Large cells with granular {{c2::eosinophilic}} cytoplasm ± cross-striations / inclusions<br>IHC: Desmin, {{c3::Myogenin}}+
 
 BOUNDARIES AND NUMBERING
-- You may remove, shrink, move, merge, or split old clozes.
-- Delete low-yield old clozes. Old placement and the old number of groups are not authoritative.
+- You may remove, shrink, move, merge, or split old clozes while preserving the note's useful content and intended teaching point.
 - Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
-- Usually use 1–4 logical groups. About three is a useful target for tumor cards, but retain c4 when a fourth distinct fact is truly useful.
-- For tumors, a useful pattern is c1 entity, c2 key site/morphology, and c3 defining IHC/genetics.
+- Usually use 1–4 logical groups, and fewer when fewer facts deserve testing.
+- Never hide a whole sentence, paragraph, explanation, histology section, or IHC panel when a small target can test the association.
 
 QUALITY EXAMPLES
-- {{c1::Hypocalcemia}} becomes {{c1::Hypo}}calcemia.
-- {{c2::Hyperphosphatemia}} becomes {{c2::hyper}}phosphatemia.
-- {{c3::Renal osteodystrophy}} becomes renal {{c3::osteo}}dystrophy.
-- A giant Fabry cloze becomes: Fabry disease:<br>EM: {{c1::Zebra}} bodies<br>Due to α-{{c2::galactosidase A}} deficiency.
-- A long potassium explanation becomes: Acidosis → K+ shifts out → {{c1::hyper}}kalemia.<br>Alkalosis → K+ shifts in → {{c1::hypo}}kalemia.
-- DSRCT should emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, rather than hiding demographics, histology, IHC, and genetics in one giant cloze.
-- BCOR-CCNB3 should emphasize {{c1::BCOR-CCNB3}}, site {{c2::Bone}}, and {{c3::BCOR / CCNB3}} IHC.
-- CIC-DUX4 should emphasize {{c1::CIC-DUX4}}, site {{c2::Soft tissue}}, and {{c3::WT1}} IHC.
+- In diabetic nephropathy, development is preceded by micro{{c1::albuminuria}}.
+- Type 4 RTA:<br>non-anion gap metabolic acidosis with persistent {{c1::hyperkalemia}}.
+- Creatinine clearance slightly {{c1::overestimates}} GFR because creatinine is secreted by renal tubules.<br>BUN slightly {{c1::underestimates}} GFR because BUN is partially reabsorbed.
+- A giant Fabry cloze can become: Fabry disease:<br>EM: {{c1::Zebra}} bodies<br>Due to α-{{c2::galactosidase A}} deficiency.
+- DSRCT may emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, while leaving supporting demographics and description visible.
 
 ACCURACY AND STORAGE
 - Do not invent or silently change medical facts. Correct only obvious typos.
 - Preserve all image tags, sound references, and media filenames exactly.
-- Preserve useful HTML structure where possible. The website creates a separate clean-text preview.
+- Preserve useful HTML structure and formatting where possible. The website creates a separate clean-text preview.
 
 FINAL CHECK
-- Confirm that you actually rewrote/summarized the source and removed redundant or low-yield prose before adding clozes.
-- Inspect every {{cN::answer}} and do not return the card while any answer contains more than two words.
-- For every oversized cloze, remove the old wrapper, select its most important one- or two-word answer, wrap only that answer, and leave all remaining text visible.
-- Ensure no sentence, paragraph, explanation, histology section, or IHC panel remains hidden.
-- Consider a partial-word cloze whenever it tests the same association faster.
-- Merge redundant groups and make numbering consecutive from c1.
-- Simplify again if the result would not be answerable in 2–5 seconds.
-- Confirm every cloze tests meaningful medical knowledge and no cloze contains filler or a grammar-only cue.
+Before returning each note, confirm:
+1. Useful original content, wording, and organization were preserved.
+2. Nothing was rewritten simply for the sake of rewriting.
+3. Large old clozes were reduced to small recall targets without discarding useful visible details.
+4. Every cloze tests an actual medical fact rather than generic language or a list number.
+5. Explanatory and supporting information remains visible.
+6. The card can be answered rapidly.
+7. The result looks manually edited rather than regenerated.
+8. There is exactly one refined version of the note.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
-- Return only the edited field text: no commentary, labels, Markdown fences, or previews.
-- You may condense or reorganize visible wording to support fast review, but preserve its medical meaning and all media references.
+- Return only the edited field text: no commentary, labels, Markdown fences, previews, originals, or alternate versions.
+- Preserve the note when it is already effective; otherwise make only the minimum changes required for a fast, high-yield card.
 `.trim();
 
 function clozeNumbersInOrder(text) {
@@ -1153,7 +1151,7 @@ ${rawText}`;
 REPAIR THIS DRAFT:
 ${draft}
 
-First rewrite each complete card into concise high-yield rapid-review form, then place clozes. Return the same fields separated by ${d}. Every individual cloze answer MUST contain only one or two meaningful medical words. Move all remaining words outside each wrapper. Never cloze filler such as the, a, an, due, if, in, of, to, or patchy. Use higher/lower only when direction is the tested medical fact. Return only the repaired field text.`,
+Repair only the invalid clozes while preserving the draft’s useful wording, explanations, formatting, and organization. Return the same fields separated by ${d}. Keep each cloze to one or two medically meaningful words, move supporting text outside oversized wrappers, and never cloze generic language or list numbers. Do not regenerate the cards, append alternate versions, or remove useful visible details. Return only the repaired field text.`,
       });
     }
     const outputFields = String(draft || "").split(d);
