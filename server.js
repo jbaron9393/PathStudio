@@ -640,22 +640,32 @@ PRESERVE THE OPENING TERM FOR ALPHABETICAL ORDER
 - Do not invent or prepend an artificial title merely to satisfy this rule. If retaining the opening term would make the result medically confusing or nonsensical, accurate editing takes priority.
 - The rest of the card may still be shortened, cleaned, or reorganized when useful.
 
+SELECT CLOZES BY THE QUESTION AND INFORMATION GAIN
+Before creating any cloze, internally ask: “What question does this card actually want the learner to answer?” Do not output the question. Use the heading and visible context as its clue, then hide the smallest fragment that forces recall of the medically important answer.
+- A medically related word is not automatically a useful cloze. Removing it must meaningfully change what the learner has to recall.
+- Cloze answers, not arbitrary sentence components. For Type 4 RTA, test persistent {{c1::hyper}}kalemia—not {{c1::Type}} 4 RTA.
+- Do not cloze information the card already gives away. For example, under the heading “Adult Rhabdomyoma,” leave a repeated “Adult” in the clinical line visible rather than testing it again.
+- Existing cloze placement and group count are not authoritative. Preserve useful content, but remove, move, shrink, merge, or split poor clozes.
+- A line, bullet, section, or category may contain no cloze. Visible information still provides useful context and reinforcement.
+- Do not distribute clozes across a card merely because several facts are present. Maximize the value of each cloze, not the number of clozes.
+
 CLOZE THE ANSWER; LEAVE THE CLUE
-- Existing cloze boundaries, numbers, and group counts are suggestions, not requirements.
-- Replace paragraph-, sentence-, and list-sized clozes with 1–3 small, high-yield recall targets while keeping the useful facts visible.
+- Replace paragraph-, sentence-, and list-sized clozes with a few small, high-yield recall targets while keeping useful facts visible.
 - Hide the smallest medically meaningful distinguishing text that can be recalled in 2–5 seconds.
 - Clozes should normally contain only 1–2 words. An inseparable entity name or molecular alteration may remain intact when the full name is the appropriate recognition target.
-- Partial-word clozes are encouraged when they make recognition faster and cleaner: micro{{c1::albuminuria}}, {{c1::hyper}}kalemia, {{c1::hypo}}calcemia, renal {{c1::osteo}}dystrophy.
-- Leave explanatory mechanisms and supporting information visible. Not every fact deserves a cloze.
+- Partial-word clozes are strongly encouraged when a direction or prefix is the tested fact: micro{{c1::albuminuria}}, {{c1::hyper}}kalemia, {{c1::hypo}}calcemia, {{c1::over}}estimates, {{c1::under}}estimates, renal {{c1::osteo}}dystrophy.
+- Leave explanatory mechanisms and supporting information visible. For example: Low Mg → {{c1::hypo}}calcemia via ↓ PTH release.
 - Preserve useful details when unwrapping a large original cloze; do not summarize them away automatically.
 
 WHAT TO CLOZE
 1. Choose only facts whose recall demonstrates medically useful knowledge.
-2. Prioritize diagnosis/entity, characteristic site, defining morphology, distinctive IHC, defining molecular alteration, important syndrome association, and key directional laboratory findings.
-3. Disease and tumor names may be clozed. Use a distinguishing portion when it provides a clean clue (Adult {{c1::Rhabdomyoma}}), but hide the full entity when that is the appropriate recognition target. Do not force either pattern universally.
-4. Related facts may share a cloze number. Do not create a separate card for every fact.
-5. Usually leave mechanisms, supporting explanations, long descriptive lists, generic morphology, generic stains, routine demographics, and prognosis visible unless one is genuinely distinguishing.
-6. When a list is the tested material, cloze only a few high-yield items and leave the rest visible. Example: Prerenal acute renal failure causes: {{c1::Hypovolemia}}, CHF, cirrhosis, {{c1::NSAIDs}}, ACE inhibitors, vasopressors.
+2. For pathology cards, rank candidates by distinguishing value: useful entity/diagnosis, characteristic site, defining morphology, distinctive IHC, molecular/genetic feature, then highly characteristic clinical association.
+3. Deprioritize generic adjectives, verbs, age words, morphology words, common stains, sentence connectors, and facts already visible in a heading or elsewhere on the card.
+4. Disease and tumor names may be clozed. Use a distinguishing portion when it provides a clean clue (Adult {{c1::Rhabdomyoma}}), but hide the full entity when that is the appropriate recognition target. Do not force either pattern universally.
+5. Multiple facts that form one natural recall task should share a cloze number. Example: Predominant intracellular: {{c1::K+}} / {{c1::phosphate}}; extracellular: {{c2::Na+}} / {{c2::chloride}}.
+6. Related IHC markers may likewise share a number when they are naturally recalled together. Do not create a separate logical card for every marker or bullet.
+7. Usually leave mechanisms, supporting explanations, long descriptive lists, generic morphology, generic stains, routine demographics, and prognosis visible unless one is genuinely distinguishing.
+8. When a list is the tested material, cloze only a few high-yield items and leave the rest visible. Example: Prerenal acute renal failure causes: {{c1::Hypovolemia}}, CHF, cirrhosis, {{c1::NSAIDs}}, ACE inhibitors, vasopressors.
 
 NEVER CLOZE GENERIC LANGUAGE
 - Never cloze an article, conjunction, preposition, section label, list number, HTML markup, generic grammar word, or a vague verb/adjective merely because it appears in a distinct section.
@@ -664,20 +674,22 @@ NEVER CLOZE GENERIC LANGUAGE
 - Before accepting each cloze, ask: “Would recalling this hidden text demonstrate medically useful knowledge?” If not, move or remove it.
 
 PATHOLOGY CARDS
-- Prefer the few characteristics that distinguish the entity: entity name, characteristic site, defining morphology, distinctive IHC, defining molecular alteration, or important syndrome association.
-- Do not automatically cloze every age, sex, generic morphology word, adjective, or positive stain.
-- Example:<br>Adult Rhabdomyoma<br>Cx: Adult, M>F, head and neck<br>Histo: Large cells with granular {{c2::eosinophilic}} cytoplasm ± cross-striations / inclusions<br>IHC: Desmin, {{c3::Myogenin}}+
+- Prefer only the few characteristics that distinguish the entity. Do not automatically cloze every age, sex, generic morphology word, adjective, positive stain, bullet, or section.
+- Example:<br>Leiomyoma<br>Histo: Intersecting fascicles of eosinophilic spindle cells with {{c1::cigar-shaped}} nuclei<br>IHC: Retroperitoneal tumors may be {{c2::ER/PR}}+
+- In that example, “Intersecting” and a demographic word such as “Mostly” are not useful targets merely because they are medically related.
 
-BOUNDARIES AND NUMBERING
-- You may remove, shrink, move, merge, or split old clozes while preserving the note's useful content and intended teaching point.
-- Renumber logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
-- Usually use 1–4 logical groups, and fewer when fewer facts deserve testing.
+CLOZE DENSITY AND NUMBERING
+- Default to 1–2 logical cloze groups for a short card, 2–3 for a medium card, and usually 3–5 for a long or complex pathology card.
+- Exceed those ranges only when the note clearly contains more independent, high-yield facts that are genuinely worth testing. Length alone never justifies more clozes.
+- A long Schwannoma card should not acquire a cloze in every bullet or approximately 16 logical groups merely because many words could be tested.
+- Combine related targets under one number and remove low-value groups whenever the note has more logical cards than it needs.
+- Renumber the remaining logical groups consecutively from c1 within each note, based on the final concepts rather than old numeric order.
 - Never hide a whole sentence, paragraph, explanation, histology section, or IHC panel when a small target can test the association.
 
 QUALITY EXAMPLES
 - In diabetic nephropathy, development is preceded by micro{{c1::albuminuria}}.
 - Type 4 RTA:<br>non-anion gap metabolic acidosis with persistent {{c1::hyperkalemia}}.
-- Creatinine clearance slightly {{c1::overestimates}} GFR because creatinine is secreted by renal tubules.<br>BUN slightly {{c1::underestimates}} GFR because BUN is partially reabsorbed.
+- Creatinine clearance slightly {{c1::over}}estimates GFR because creatinine is secreted by renal tubules.<br>BUN slightly {{c1::under}}estimates GFR because BUN is partially reabsorbed.
 - A giant Fabry cloze can become: Fabry disease:<br>EM: {{c1::Zebra}} bodies<br>Due to α-{{c2::galactosidase A}} deficiency.
 - DSRCT may emphasize {{c1::Desmoplastic}} small round cell tumor, {{c2::intra-abdominal}}, dot-like {{c2::Desmin}}, and EWSR1-{{c3::WT1}}, while leaving supporting demographics and description visible.
 
@@ -691,12 +703,15 @@ Before returning each note, confirm:
 1. Useful original content, wording, and organization were preserved.
 2. Nothing was rewritten simply for the sake of rewriting.
 3. Large old clozes were reduced to small recall targets without discarding useful visible details.
-4. Every cloze tests an actual medical fact rather than generic language or a list number.
-5. Explanatory and supporting information remains visible.
-6. The card can be answered rapidly.
-7. The rendered first meaningful term still matches the original and remains at the beginning, unless preserving it would be medically confusing.
-8. The result looks manually edited rather than regenerated.
-9. There is exactly one refined version of the note.
+4. Every cloze answers the card’s implied question and provides meaningful information gain rather than merely hiding a medically related word.
+5. No cloze redundantly tests information already supplied by the heading or visible context.
+6. Explanatory and supporting information remains visible, and lines that do not need clozes remain unclozed.
+7. Related facts share a number when they form one recall task, and the card has no more logical groups than it genuinely needs.
+8. Each recalled fragment demonstrates useful medical knowledge; otherwise remove it or move the cloze to a more distinguishing fact.
+9. The card can be answered rapidly.
+10. The rendered first meaningful term still matches the original and remains at the beginning, unless preserving it would be medically confusing.
+11. The result looks manually edited rather than regenerated.
+12. There is exactly one refined version of the note.
 
 OUTPUT
 - Return the same number of fields in the same order, separated only by the supplied delimiter.
