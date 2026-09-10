@@ -4,11 +4,26 @@ import { validateExportClozes } from "../lib/exportClozeValidator.js";
 
 test("accepts compact medical clozes", () => {
   assert.deepEqual(validateExportClozes("CCK: ↑ {{c1::pancreatic secretion}}"), { passed: true, reasons: [] });
+  assert.deepEqual(validateExportClozes("Acidosis: {{c1::anion gap metabolic acidosis}}"), { passed: true, reasons: [] });
+});
+
+test("requires final review of every cloze longer than three words", () => {
+  assert.deepEqual(validateExportClozes("{{c1::Normal growth and pregnancy}}"), {
+    passed: false,
+    reasons: ["oversized_cloze"],
+  });
+  assert.deepEqual(validateExportClozes("{{c1::N-acetylcysteine}} → regenerates glutathione"), {
+    passed: true,
+    reasons: [],
+  });
 });
 
 test("detects giant sections and labeled relationships", () => {
   const card = "{{c1::Total: diazo with accelerator<br>Direct: diazo without accelerator<br>Indirect: total minus direct}}";
-  assert.deepEqual(validateExportClozes(card), { passed: false, reasons: ["giant_cloze"] });
+  assert.deepEqual(validateExportClozes(card), {
+    passed: false,
+    reasons: ["giant_cloze", "oversized_cloze"],
+  });
 });
 
 test("detects arbitrary grammatical fragments", () => {

@@ -28,11 +28,15 @@ TARGET DENSITY (SOFT GUIDANCE)
 - Entire sections may remain visible. Never add groups merely to cover sections or bullets.
 - Longer cards get MORE REASONING, not MORE HIDING. A long card may appropriately leave most of its text visible.
 
-CLOZE SIZE AUDIT
-- A cloze should normally contain one medical term, one short phrase, one short inseparable list, one relationship, or one equation/value.
-- Presume paragraph-sized and section-sized clozes are wrong. If one cloze contains multiple independent recall tasks, split it into logical groups or leave supporting information visible.
-- For every cloze ask: “Could this blank be substantially smaller while testing the same medical concept?” If yes, shrink it.
-- Never solve under-clozing by wrapping an entire answer block in one cloze.
+FINAL CLOZE-SIZE AUDIT (HIGHEST PRIORITY AFTER SEMANTIC EDITING)
+- After every other Pass 2 decision is complete, inspect EVERY individual {{cN::...}} span. This is mandatory even when Pass 1 created the span.
+- Cloze the smallest meaningful recall unit. Prefer 1–2 meaningful words per individual span; accept 3 words only when they form a meaningful medical unit.
+- For EVERY span longer than 3 words, stop and internally identify the specific semantic reason all words must be recalled together. If there is no strong reason, shrink the wrapper to the highest-information 1–3 word target and move all explanation, context, consequences, and other list items outside it.
+- Rare inseparable exceptions may exceed 3 words, such as {{c1::anion gap metabolic acidosis}}. Do not split a genuine medical term, molecule, translocation, equation, or other inseparable unit merely to satisfy a mechanical count.
+- Word count applies to each individual span, not the total hidden by a shared c-number. When facts belong to one recall task, use multiple small spans with the same number rather than one large wrapper.
+- A full sentence, explanatory clause, long list, or multi-step mechanism should almost never be one cloze. Presume paragraph- and section-sized clozes are wrong.
+- Ask of every span: “What is the smallest piece of this hidden text that demonstrates the medical knowledge being tested?” Then ask: “Am I hiding explanation or context that would make recall faster?” Shrink and expose context whenever either answer requires it.
+- Never solve under-clozing by wrapping an entire answer block in one cloze. Stop editing once every cloze is concise, meaningful, and high-information.
 
 TARGET THE MEDICAL UNIT
 - Prefer the smallest meaningful medical unit, not blindly one word.

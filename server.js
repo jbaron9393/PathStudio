@@ -29,7 +29,7 @@ let styleSeedLibrary = { micro: [], gross: [], path: [] };
 let grossingManualSyncPromise = null;
 const exportJobs = new Map();
 const EXPORT_JOB_TTL_MS = 60 * 60 * 1000;
-const EXPORT_PIPELINE_VERSION = "v5";
+const EXPORT_PIPELINE_VERSION = "v6-cloze-size-audit";
 
 async function removeExportJob(token) {
   const job = exportJobs.get(token);
@@ -1437,9 +1437,13 @@ ${qaRecords}`,
 
 Do not broadly rewrite this card.
 
-The card failed structural cloze validation.
+The card failed final cloze QA validation.
 
-Repair giant clozes, grammatical-fragment clozes, and illogical grouping.
+Inspect EVERY individual cloze span. Repair oversized or giant clozes, grammatical-fragment clozes, and illogical grouping.
+
+The smallest meaningful recall unit is a hard requirement: prefer 1–2 words, usually never exceed 3, and allow more than 3 only for a specifically justified inseparable medical unit.
+
+If a span is too large, keep only its highest-information 1–3 word medical target hidden. Move explanations, clauses, lists, and supporting context outside the wrapper without losing source information. Multiple small spans may share a c-number when they are one recall task.
 
 Preserve the source medical content.
 
