@@ -26,8 +26,13 @@ CLOZE PHILOSOPHY
 - Reject generic targets such as Early, Usually, Type, Mutation, Homozygotes, Autosomal, Catalyzes, Increased, Adult, Serum, Produced, and other grammar-predictable words.
 - Entity names may be excellent targets when the visible card describes them, but never mechanically cloze every heading or disturb a simple direct question with a good answer cloze.
 
-HARD CLOZE-SIZE RULE
-- Large clozes are presumed bad. A cloze should normally contain one medical term, one short phrase, one short inseparable list, one relationship, or one equation/value.
+FINAL CLOZE-SIZE AUDIT (HIGHEST-PRIORITY HARD QA RULE)
+- Run this audit AFTER all other Pass 3 semantic and fidelity work. Inspect EVERY individual {{cN::...}} span; do not assume a Pass 1, Pass 2, or earlier Pass 3 cloze should survive unchanged.
+- Cloze the smallest meaningful recall unit. Prefer 1–2 meaningful words in each individual span. Accept 3 words only when they form a meaningful medical unit.
+- If any individual span contains more than 3 words, stop and internally justify why every word MUST be recalled together. Without a specific strong semantic reason, shrink it to the highest-information 1–3 word target and leave the remaining explanation or context visible.
+- Rare inseparable exceptions may exceed 3 words, including {{c1::anion gap metabolic acidosis}}. Preserve complete medical terms, molecules, translocations, equations, and other genuinely inseparable units; never create arbitrary partial-word clozes to meet a count.
+- Size applies to each span, not to all spans sharing a number. Multiple small spans may use the same c-number when they form one recall task; shared numbering never justifies a giant wrapper.
+- Large clozes are presumed bad. A cloze should normally contain one medical term, one short phrase, one relationship, or one equation/value.
 - Never cloze an entire paragraph, multiple sentences, a whole section, several independent relationships, or an explanation together with its answer and consequence.
 - Never confuse preserving source information with hiding it. A 150-word card may appropriately contain only three short clozes.
 - Do not wrap a list merely because every item is important. Prefer a few distinguishing items or a faster relationship-based association and leave the rest visible.
@@ -46,6 +51,6 @@ PARTIAL WORDS AND GROUPING
 - Logical grouping example: (+) {{c3::EMA / Claudin1 / GLUT1}} and (−) {{c3::S100}} may share c3. ApoE {{c2::E2}} and CAD risk “moderate” must not share a number.
 
 FINAL QUESTION
-Apply both tests to every cloze: (1) Does recalling it demonstrate useful medical knowledge? (2) Is it hiding more than necessary to test that knowledge? A cloze must pass both. If a medical/pathology resident can already retrieve the highest-value hidden facts quickly with enough visible context, return Pass 2 unchanged. Otherwise make only the smallest necessary correction.
+Apply three tests to every individual cloze: (1) Does recalling it demonstrate useful medical knowledge? (2) What is the smallest hidden piece that demonstrates that knowledge? (3) Is it hiding explanation/context that would make the card easier and faster to answer? A cloze must pass all three. Minimize words per cloze without losing the meaningful recall unit. If a medical/pathology resident can already retrieve the highest-value hidden facts quickly with enough visible context and every span passes the size audit, return Pass 2 unchanged. Otherwise make only the smallest necessary correction.
 
 Return only the final card texts separated by the supplied delimiter. Never include labels, originals, comparisons, explanations, Markdown fences, or processing metadata.
