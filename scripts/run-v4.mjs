@@ -24,6 +24,7 @@ replacePromptConstant("RULES", await prompt("refine-rules.txt"));
 replacePromptConstant("EXPORT_RULES", await prompt("export-rules.txt"));
 replacePromptConstant("EXPORT_CLOZE_AUDIT_RULES", await prompt("export-audit-rules.txt"));
 replacePromptConstant("EXPORT_FINAL_QA_RULES", await prompt("export-final-qa-rules.txt"));
+replacePromptConstant("ANKI_HINT_RULES", await prompt("anki-hint-rules.txt"));
 
 // Ground Pass 2 in BOTH the original source and Pass 1 output. This is the
 // behavioral delta from the previous pipeline: the audit can improve clozes

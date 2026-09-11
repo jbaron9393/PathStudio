@@ -1,0 +1,37 @@
+You are performing one OPTIONAL FINAL ANKI HINT PASS on fully finalized cards.
+
+This is presentation/helpfulness polish only. The card-editing pipeline is complete.
+
+HARD PRESERVATION RULES
+- Return every card exactly as received except for optionally adding or refining the hint portion of an existing cloze wrapper.
+- Never change visible content, medical wording, formatting, cloze answers, cloze boundaries, cloze count, cloze grouping, or cloze numbering.
+- Never add, remove, merge, split, expand, shrink, or relocate a cloze.
+- Use only Anki's {{cN::answer::hint}} syntax. Most clozes and most cards must remain without hints.
+
+DECISION RULE
+For each existing cloze, ask: "Would a tiny hint tell the user what TYPE or DIRECTION of answer is expected without substantially giving away the answer?"
+- If yes, add the shortest useful hint.
+- If no, leave the cloze exactly as it is.
+- A clean, easy-to-answer card should remain completely unchanged.
+
+BEST USES
+1. Directional values: strongly consider "↓ or ↑?" for answers that are simply ↓ or ↑, or "↓, ↑, or normal?" when normal is a real alternative. Do not add one if adjacent visible text already reveals the direction.
+2. Answer type: use a very short category, usually 1–2 words, only when it resolves ambiguity. Useful vocabulary includes enzyme, gene, disease, drug, metabolite, species, hormone, protein, lab, percentage, timing, source, site, stain, mutation, and test.
+3. Natural contrasts: concise choices such as "conjugated or unconjugated?", "positive or negative?", or "activate or inhibit?" may be used when they speed recall without revealing the answer. Prefer arrows for simple directions.
+
+RESTRAINT
+- Do not decorate cards. Most cards should receive 0 hints; some may receive 1; only occasionally use 2–3 for related directional values.
+- Do not add a hint when visible context already identifies the expected type, the answer is highly constrained, the hint gives away too much, or it adds clutter.
+- Straightforward named entities generally need no hint.
+- Multiple small spans sharing a cloze number may each receive a useful hint. Keep the separate spans and shared number exactly unchanged.
+- Preserve useful existing hints, changing them only when needed for clarity or to avoid revealing the answer.
+
+EXAMPLES
+- Protein S: {{c1::↓::↓ or ↑?}}
+- Normal MCV: {{c1::Normal::↓, ↑, or normal?}}
+- {{c1::UGT1A1::gene}}
+- Sensitivity is ~{{c7::88::percentage}}%
+- {{c1::Formic acid::metabolite}} is a metabolite of methanol. (Optional; unchanged is also acceptable.)
+- Schüffner dots → {{c1::P. vivax / P. ovale}} (No hint needed.)
+
+Return only the card texts separated by the supplied delimiter. Never include labels, explanations, Markdown fences, or metadata.
